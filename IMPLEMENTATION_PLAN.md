@@ -1,6 +1,6 @@
 # Minecraft metro website implementation plan
 
-Planning date: 6 October 2026. This document is the implementation handoff for subsequent agents. The original task covered planning; the owner subsequently authorized bot verification and initialization of the map repository with the supplied JSON/PNG. Website implementation and deployment remain future work.
+Planning date: 6 October 2026. This document records the agreed design. The owner subsequently authorized bot verification, map repository initialization, and parallel website implementation. Implementation is now in this workspace; see [README.md](README.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current setup and remaining acceptance work. The owner explicitly deferred deployment and functional testing until their return. Historical setup records below describe the state at the time of each action.
 
 Build a website where players can view the approved metro map and submit requests or comments without learning GitHub. Approved collaborators use website accounts to upload a replacement map and open a pull request. An administrator reviews and merges that pull request in GitHub. GitHub retains the authoritative map history and discussion history.
 

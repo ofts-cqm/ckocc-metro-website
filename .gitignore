@@ -7,3 +7,15 @@
 
 # Separate checkout of the metro map data repository.
 /map-data/
+
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+npm-debug.log*
+/.swc

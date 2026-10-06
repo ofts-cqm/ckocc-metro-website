@@ -1,0 +1,51 @@
+name: Validate metro map
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-map-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout protected validation code
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: trusted
+          persist-credentials: false
+      - name: Checkout candidate data
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate candidate using protected code
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          args=(--candidate candidate)
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            args+=(--base trusted)
+            if [[ "$HEAD_BRANCH" == maintenance/* && "$AUTHOR_ASSOCIATION" == OWNER && "$HEAD_REPOSITORY" == "$TARGET_REPOSITORY" ]]; then
+              args+=(--allow-maintenance)
+            fi
+          fi
+          python3 trusted/scripts/validate_map.py "${args[@]}"

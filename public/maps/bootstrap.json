@@ -1,0 +1,10 @@
+{
+  "revision": "sha256:ea26faf2bb455a6319e236f538f1e5d3da700500e101e386a9855fa9701c1bc3",
+  "commitSha": "0f1848d30952bd0857a265867473db8586a911bd",
+  "imageUrl": "https://raw.githubusercontent.com/ofts-cqm/ckocc-metro-map/0f1848d30952bd0857a265867473db8586a911bd/maps/network.png",
+  "overviewUrl": "/maps/network-overview.webp",
+  "publishedAt": "2026-10-06T13:40:39Z",
+  "width": 17577,
+  "height": 9095,
+  "summary": "Import the current administrator-supplied metro map"
+}

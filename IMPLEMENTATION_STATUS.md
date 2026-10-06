@@ -1,0 +1,51 @@
+# Implementation handoff — 6 October 2026
+
+The owner authorized implementation using subagents and asked to do deployment and testing after returning. This record distinguishes code written from behavior still requiring acceptance. No deployment, database migration, administrator provisioning, live submission, or browser/test-suite execution occurred during website implementation.
+
+## Implemented areas
+
+- **Accounts and abuse controls:** Better Auth credential sessions, salted Argon2id hashes, administrator bootstrap, email-bound single-use invitation/reset links, account disabling/session revocation, roles, fresh admin authentication, PostgreSQL rate counters, Turnstile, same-origin enforcement, and a public-write pause.
+- **Requests and discussions:** General and ordered line-update forms, free-text dimensions defaulting to `overworld`, optional English names and line identifiers, string line numbers, GitHub issue/comment templates, eligibility checks, pagination, durable operation receipts, and safe display of Markdown.
+- **Map updates:** Server-recorded edit bases, private direct uploads, RMP v80 and PNG validation, fixed-path atomic Git commit, PR creation with selected issue links, stale-base rejection, workflow checkpoints, an outbox, and explicit uncertain-outcome recovery.
+- **Publication and operations:** Signed webhook ingestion, default-branch reconciliation, immutable original/overview publication, database publication locking, last-good map retention, admin retry/sync, and daily repair/cleanup.
+- **Interface:** Three locales, language preference, map pan/zoom/touch controls, request/comment pages, invitation/login forms, collaborator submissions, and admin screens.
+- **Repository handoff:** Pinned dependencies, SQL migrations, environment example, bootstrap map preview, and data-repository CI templates for later installation.
+
+Three subagents owned accounts/data, GitHub/workflows, and multilingual UI. The main agent integrated shared schemas, application configuration, dependencies, and operator documentation.
+
+## Compilation evidence
+
+`npm run typecheck` and `npm run build` completed successfully, including the production webpack bundle, generated Workflow routes, Next.js route type validation, and page-data/build tracing. The Python operator scripts passed syntax parsing. Passing compilation does not establish authentication, GitHub, upload, webhook, mobile, or translation acceptance.
+
+Focused unit tests under `tests/` cover input constraints, password primitives, map bytes/graph/PNG validation, and GitHub text templates. `npm run test:unit` is prepared for the next session and has not been executed. Database/provider concurrency and browser acceptance still need integration coverage.
+
+## Resume with these steps
+
+1. Choose development/staging service resources and hosting plan. Keep staging PostgreSQL, GitHub repository/App installation, Blob stores, challenge keys, and origins separate from production.
+2. Review `.env.example`; configure uppercase runtime variables securely. Confirm the bot's exact login. Configure the private and public Blob stores separately.
+3. Use the direct PostgreSQL URL to run migrations, then interactively bootstrap the initial administrator. Return the app to its pooled URL. Back up account and operation state.
+4. Install/review the map-repository workflow and validator using an administrator identity. Pin action versions, configure branch rules, and verify the trusted validation check really blocks stale PRs. No bot bypass.
+5. Exercise the application locally or in staging, then configure the App webhook and repair schedule. Validate the platform's trusted IP header, native Argon2/sharp runtime, Workflow retries, Blob callbacks, execution duration/memory, and plan quotas.
+6. Complete the functional cases in [the design's acceptance list](IMPLEMENTATION_PLAN.md#acceptance-tests), then let the owner review the running UI before production deployment.
+
+## Priority acceptance cases (not yet run)
+
+- Login, invitation and reset races; two equal passwords produce distinct salted hashes; disabled/reset users lose existing sessions and upload access; anonymous/signup/role bypasses fail.
+- All forms in all three locales, including Hong Kong wording and layout; optional English names, Chinese fallback, string line numbers (`01`, `2A`, `7.5`), custom dimensions (`server:moon`, `Resource World`, `資源界`), and default `overworld` survive round trips.
+- Draft and staged upload recovery across locale changes, reloads, slow/error responses, and expired sessions. Desktop keyboard/touch map controls and mobile readability.
+- Real challenge validation, durable limits, same-origin checks, field errors, script/Markdown injection, notification/closing-directive suppression, locked/closed/unlabeled issue handling, and pagination.
+- The existing 7.36 MB PNG uploads directly to private storage; corruption, excessive decoded pixels, and unauthorized object references fail before writes. Original bytes and manifest hashes agree.
+- Issue/comment/PR creation succeeds once under duplicate requests, concurrent workers, dropped responses, process restarts, and provider throttling. Unknown outcomes preserve checkpoints for recovery.
+- Concurrent edits from A: first merge publishes B; second PR based on A cannot overwrite B even after GitHub's Update branch. Owner manually reconciles in the editor.
+- Selected issues remain open until the correct PR merges; unmerged PR closure publishes nothing. Invalid, duplicated, missed, and out-of-order webhooks retain correct publication state.
+- Actual data-repository CI, required checks, bot permissions, and administrator-only merge rules. A restored old map pair with a fresh manifest passes the rollback workflow; reopening issues remains an explicit administrator decision.
+
+## Operational limits to review
+
+The current map is 17,577 × 9,095 pixels. The viewer initially loads a reduced overview and offers the original separately. Deep zoom currently enlarges that overview; if station labels need to remain sharp inside the viewer at high zoom on phones, add image tiles after visual review.
+
+JSON uploads are capped at 2 MiB; PNGs at 20 MiB, 24,576 pixels per axis, and 200 million decoded pixels. Staging reserves at most 128 MiB per collaborator and 1 GiB globally. Expired unused staging is cleaned, while assets needed for uncertain/failed operations are retained for recovery.
+
+Invitations expire after 24 hours and reset links after one hour. Passwords allow 12–128 characters. Sessions last seven days, with 15-minute freshness required for administrative mutations. Argon2id begins at 19 MiB/two iterations/parallelism one and still needs a deployed-runtime benchmark.
+
+The included repair schedule runs daily. Normal jobs launch immediately; an interrupted launcher can require manual admin recovery before the next daily sweep. More frequent scheduled repair depends on the selected Vercel plan. No cost or production-readiness claim is made before staging acceptance.

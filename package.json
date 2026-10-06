@@ -1,0 +1,46 @@
+{
+  "name": "ckocc-metro",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "next start",
+    "typecheck": "tsc --noEmit --incremental false",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" next.config.ts package.json tsconfig.json vercel.json",
+    "test:unit": "node --conditions=react-server --import tsx --test tests/*.test.ts",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
+    "admin:bootstrap": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/bootstrap-admin.ts"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "2.2.2",
+    "@octokit/auth-app": "8.3.1",
+    "@opentelemetry/api": "1.9.0",
+    "@vercel/blob": "2.8.1",
+    "better-auth": "1.7.7",
+    "lucide-react": "1.52.0",
+    "next": "16.3.8",
+    "octokit": "5.0.5",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "server-only": "0.0.1",
+    "sharp": "0.35.5",
+    "workflow": "5.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
