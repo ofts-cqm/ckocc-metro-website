@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+
+# Separate checkout of the metro map data repository.
+/map-data/
