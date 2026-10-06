@@ -2,6 +2,14 @@
 
 The owner authorized implementation using subagents and asked to do deployment and testing after returning. This record distinguishes code written from behavior still requiring acceptance. No deployment, database migration, administrator provisioning, live submission, or browser/test-suite execution occurred during website implementation.
 
+## Subsequent local database setup
+
+The owner subsequently reported that npm tests and the build passed, then explicitly requested a **local development database**. PostgreSQL 18.6 is now configured at `127.0.0.1:5433`, database `ckocc_metro_dev`, application role `ckocc_metro`. The role has no superuser, database-creation, role-creation, or replication privileges.
+
+Both existing migrations were applied. Verification confirmed all 18 expected tables, recorded migration hashes, UTF-8 encoding, loopback-only listening, transaction advisory locks, and a write/read/rollback that retained no test rows. The database contains no website accounts; administrator bootstrap remains a separate interactive step.
+
+Credentials are saved in ignored `.env.local` with mode 0600. The ignored `.local/postgres/` directory contains persistent data and private connection recovery state. Use `npm run db:local:start`, `db:local:stop`, and `db:local:status`; the database does not automatically start after reboot. `npm run db:local:init` can recreate the setup on another Linux machine with PostgreSQL installed. Hosted database provisioning and Vercel deployment remain pending.
+
 ## Implemented areas
 
 - **Accounts and abuse controls:** Better Auth credential sessions, salted Argon2id hashes, administrator bootstrap, email-bound single-use invitation/reset links, account disabling/session revocation, roles, fresh admin authentication, PostgreSQL rate counters, Turnstile, same-origin enforcement, and a public-write pause.

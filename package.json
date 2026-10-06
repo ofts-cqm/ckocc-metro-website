@@ -10,6 +10,10 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" next.config.ts package.json tsconfig.json vercel.json",
     "test:unit": "node --conditions=react-server --import tsx --test tests/*.test.ts",
     "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
+    "db:local:init": "node --import tsx scripts/local-db.ts init",
+    "db:local:start": "node --import tsx scripts/local-db.ts start",
+    "db:local:stop": "node --import tsx scripts/local-db.ts stop",
+    "db:local:status": "node --import tsx scripts/local-db.ts status",
     "admin:bootstrap": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/bootstrap-admin.ts"
   },
   "engines": {

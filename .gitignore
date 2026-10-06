@@ -19,3 +19,6 @@ test-results/
 .DS_Store
 npm-debug.log*
 /.swc
+
+# Machine-local PostgreSQL data, sockets, logs, and credentials.
+/.local/

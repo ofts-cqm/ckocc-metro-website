@@ -8,7 +8,7 @@ The interface supports `/en-us`, `/zh-cn`, and `/zh-hk`. Station dimensions acce
 
 ## Current handoff
 
-Implementation is in this workspace. **Deployment and functional testing are deferred at the owner's request.** See [implementation status and next-session checklist](IMPLEMENTATION_STATUS.md) and the [agreed design](IMPLEMENTATION_PLAN.md).
+Implementation and local database setup are in this workspace. The owner reports that unit tests and the build passed. **Browser testing, hosted integration testing, and deployment remain pending.** See [implementation status and next-session checklist](IMPLEMENTATION_STATUS.md) and the [agreed design](IMPLEMENTATION_PLAN.md).
 
 ## Local development
 
@@ -23,7 +23,7 @@ Without backend configuration, the home page uses the real, approved bootstrap m
 
 For backend work, copy `.env.example` to **`.env.local`**, leaving the existing secret `.env` and PEM intact. Fill the documented variables using separate development resources. Next.js loads these files; the operator commands load `.env` then `.env.local`. Environment variables already exported in the shell take precedence.
 
-After provisioning a development PostgreSQL database, these commands apply schema changes and create the first administrator. They have **not** been run in this implementation session:
+After provisioning a development PostgreSQL database, these commands apply schema changes and create the first administrator. The local database now has both migrations applied; administrator bootstrap has not been run:
 
 ```sh
 npm run db:migrate
@@ -32,6 +32,27 @@ npm run admin:bootstrap
 
 Bootstrap prompts for email, display name, and a hidden password in an interactive terminal. It refuses if an administrator already exists. Admins then create invitations through the website. There is no public registration or public bootstrap route. Migration checksums are recorded; add a new migration after deployment instead of editing an applied file. Use a direct database connection for migrations because their advisory lock is session-scoped; the app's normal `DATABASE_URL` can use transaction pooling.
 
+### Project-local PostgreSQL
+
+The development database on this machine is `ckocc_metro_dev` at `127.0.0.1:5433`, using the non-superuser role `ckocc_metro`. Its random password is stored in the ignored, owner-readable `.env.local`. PostgreSQL listens only on loopback; local administrator access uses operating-system peer authentication through the private project socket.
+
+The data, socket, log, and recovery configuration are under ignored `.local/postgres/`. Data persists across stops and reboots. Start the server manually after a reboot; no system service was installed.
+
+```sh
+npm run db:local:status
+npm run db:local:start
+npm run db:local:stop
+```
+
+To initialize this development setup on another Linux machine with PostgreSQL binaries installed:
+
+```sh
+npm run db:local:init
+npm run db:migrate
+```
+
+Initialization preserves existing project data and refuses to replace `.env.local` when it targets a different database. For a different port on the first initialization, set `METRO_DB_PORT`. This local database is for development; Vercel will need a separate hosted connection.
+
 ```sh
 npm run typecheck
 npm run build
@@ -39,7 +60,7 @@ npm run build
 
 These are compilation commands, not functional acceptance tests.
 
-Focused unit tests have been authored for the next session but have not been executed. Run `npm run test:unit` when resuming testing; database, browser, and staging integration cases remain in the acceptance checklist.
+The owner reports that the npm tests and build passed. Local database setup also verified migration checksums, expected tables, application permissions, a transaction-scoped advisory lock, and a write/read/rollback. Browser and staging integration cases remain in the acceptance checklist.
 
 ## Configuration
 
