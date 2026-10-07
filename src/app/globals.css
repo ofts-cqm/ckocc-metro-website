@@ -133,6 +133,14 @@ textarea {
   resize: vertical;
   min-height: 110px;
 }
+input.account-name-input:disabled {
+  background: #edf0ec;
+  color: #6b756a;
+  border-color: #d8ded5;
+  opacity: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
 input::placeholder,
 textarea::placeholder {
   color: #98a197;
@@ -2011,6 +2019,12 @@ code {
   border-color: #b9d29f;
   background: #f4f8ed;
 }
+.upload-dropzone.is-dragging {
+  border-color: #668f48;
+  background: #eaf3df;
+  outline: 3px solid #668f4840;
+  outline-offset: 3px;
+}
 .upload-icon {
   display: grid;
   place-items: center;
@@ -3509,4 +3523,20 @@ code {
 }
 .map-overview-unavailable .text-link {
   font-size: 12px;
+}
+
+.full-hash {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  user-select: all;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.map-version {
+  margin-bottom: 20px;
+}
+.edit-session-bar > div {
+  min-width: 0;
 }

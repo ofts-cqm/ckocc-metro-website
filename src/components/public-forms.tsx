@@ -306,7 +306,8 @@ export function RequestFormPage() {
                 name="gameName"
                 autoComplete="nickname"
                 value={gameName}
-                readOnly={!!auth.user}
+                disabled={!!auth.user}
+                className={auth.user ? "account-name-input" : undefined}
                 maxLength={64}
                 required
                 onChange={(e) => set("gameName", e.target.value)}
@@ -570,10 +571,14 @@ export function CommentForm({
 }) {
   const m = useMessages();
   const locale = useLocale();
-  const [draft, setDraft, clearDraft] = useDraft(`comment-${issueNumber}`, {
-    gameName: "",
-    comment: "",
-  });
+  const auth = useAuth();
+  const [draft, setDraft, clearDraft, ready] = useDraft(
+    `comment-${issueNumber}`,
+    {
+      gameName: "",
+      comment: "",
+    },
+  );
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [challengeToken, setChallengeToken] = useState("");
@@ -582,12 +587,14 @@ export function CommentForm({
     useDraft<PublicAttempt | null>(`comment-attempt-${issueNumber}-v1`, null);
   const receipt = attempt?.receipt ?? null;
   const [done, setDone] = useState(false);
+  const gameName = auth.user?.name ?? draft.gameName;
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || receipt) return;
+    if (busy || receipt || auth.loading || !ready || !attemptReady) return;
     setError(null);
     const parsed = commentSchema.safeParse({
       ...draft,
+      gameName,
       locale: languageTags[locale],
     });
     if (!parsed.success) {
@@ -671,13 +678,19 @@ export function CommentForm({
         </>
       ) : (
         <form onSubmit={submit}>
-          <fieldset disabled={busy || !attemptReady}>
-            <Field label={m.gameName}>
+          <fieldset disabled={busy || !ready || !attemptReady || auth.loading}>
+            <Field
+              label={m.gameName}
+              hint={auth.user ? m.accountGameNameHint : m.gameNameHint}
+            >
               <input
+                name="gameName"
                 required
                 maxLength={64}
                 autoComplete="nickname"
-                value={draft.gameName}
+                value={gameName}
+                disabled={!!auth.user}
+                className={auth.user ? "account-name-input" : undefined}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, gameName: e.target.value }))
                 }

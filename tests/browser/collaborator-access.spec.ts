@@ -71,7 +71,17 @@ async function mockApi(page: Page, user: SessionUser | null, state = "open") {
     } else if (path === "/api/issues/42") {
       await route.fulfill({ json: { issue } });
     } else if (path === "/api/issues/42/comments") {
-      await route.fulfill({ json: { comments: [], page: 1, hasMore: false } });
+      if (request.method() === "POST") {
+        submissions.push(request.postDataJSON());
+        await route.fulfill({
+          status: 202,
+          json: { operation: { id: "comment-operation" } },
+        });
+      } else {
+        await route.fulfill({
+          json: { comments: [], page: 1, hasMore: false },
+        });
+      }
     } else {
       throw new Error(`Unexpected API request: ${request.method()} ${path}`);
     }
@@ -115,14 +125,16 @@ for (const role of ["collaborator", "admin"] as const) {
       name: /^In-game name/,
     });
     await expect(name).toHaveValue("AccountPlayer");
-    await expect(name).not.toBeEditable();
+    await expect(name).toBeDisabled();
+    await expect(name).toHaveCSS("user-select", "none");
+    await expect(name).toHaveCSS("background-color", "rgb(237, 240, 236)");
     await page.getByRole("button", { name: "Submit request" }).click();
     await expect.poll(() => submissions.length).toBe(1);
     expect(submissions[0].gameName).toBe("AccountPlayer");
     await page.getByRole("button", { name: "Submit another request" }).click();
     await page.getByRole("radio").nth(1).check();
     await expect(name).toHaveValue("AccountPlayer");
-    await expect(name).not.toBeEditable();
+    await expect(name).toBeDisabled();
     await page
       .getByRole("textbox", { name: "Chinese name", exact: true })
       .fill("站");
@@ -137,6 +149,33 @@ for (const role of ["collaborator", "admin"] as const) {
     expect(submissions[1]).toMatchObject({
       kind: "line-update",
       gameName: "AccountPlayer",
+    });
+  });
+
+  test(`${role} replies use the disabled account name instead of a restored draft`, async ({
+    page,
+  }) => {
+    const { submissions } = await mockApi(page, { ...collaborator, role });
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        "metro:comment-42",
+        JSON.stringify({
+          gameName: "OldDraftPlayer",
+          comment: "A saved reply",
+        }),
+      );
+    });
+    await page.goto("/en-us/issues/42");
+    const name = page.getByRole("textbox", { name: /^In-game name/ });
+    await expect(name).toHaveValue("AccountPlayer");
+    await expect(name).toBeDisabled();
+    await expect(name).toHaveCSS("user-select", "none");
+    await expect(name).toHaveCSS("background-color", "rgb(237, 240, 236)");
+    await page.getByRole("button", { name: "Post comment" }).click();
+    await expect.poll(() => submissions.length).toBe(1);
+    expect(submissions[0]).toMatchObject({
+      gameName: "AccountPlayer",
+      comment: "A saved reply",
     });
   });
 
@@ -162,7 +201,7 @@ for (const role of ["collaborator", "admin"] as const) {
 test("anonymous visitors can choose a name but cannot close requests", async ({
   page,
 }) => {
-  await mockApi(page, null);
+  const { submissions } = await mockApi(page, null);
   await page.goto("/en-us/requests/new");
   const name = page.getByRole("textbox", { name: /^In-game name/ });
   await expect(name).toBeEditable();
@@ -174,6 +213,18 @@ test("anonymous visitors can choose a name but cannot close requests", async ({
   await expect(
     page.getByRole("button", { name: "Close request", exact: true }),
   ).toHaveCount(0);
+  await expect(name).toHaveValue("");
+  await expect(name).toBeEditable();
+  await name.fill("ReplyVisitor");
+  await page
+    .getByRole("textbox", { name: "Your message", exact: true })
+    .fill("A visitor reply");
+  await page.getByRole("button", { name: "Post comment" }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({
+    gameName: "ReplyVisitor",
+    comment: "A visitor reply",
+  });
 });
 
 test("a failed close retains the discussion and retry uses the same operation key", async ({

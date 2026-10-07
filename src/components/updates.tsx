@@ -17,7 +17,6 @@ import {
 import type {
   EditSession,
   IssueSummary,
-  PublishedMap,
   UpdateSummary,
   UploadAsset,
 } from "@/lib/contracts";
@@ -93,6 +92,9 @@ function UpdatesWorkspace() {
   const [busy, setBusy] = useState(false);
   const [baseCommit, setBaseCommit] = useState("");
   const [uploading, setUploading] = useState<"json" | "png" | null>(null);
+  const uploadInFlight = useRef(false);
+  const [dragging, setDragging] = useState<"json" | "png" | null>(null);
+  const dragDepth = useRef({ json: 0, png: 0 });
   const [percent, setPercent] = useState(0);
   const [previewError, setPreviewError] = useState(false);
   const [issuePage, setIssuePage] = useState(1);
@@ -103,7 +105,12 @@ function UpdatesWorkspace() {
   const issues = useApi<{ issues: IssueSummary[]; hasMore: boolean }>(
     draft.session ? `/api/issues?state=open&page=${issuePage}` : null,
   );
-  const currentMap = useApi<{ map: PublishedMap | null }>("/api/map");
+  const currentMap = useApi<{ revision: string; commitSha: string }>(
+    "/api/map/head",
+  );
+  const validBase =
+    !baseCommit.trim() ||
+    /^(?:[a-f0-9]{40}|(?:sha256:)?[a-f0-9]{64})$/i.test(baseCommit.trim());
   const reconciledSession = useRef<string | null>(null);
   useEffect(() => {
     setPreviewError(false);
@@ -127,8 +134,8 @@ function UpdatesWorkspace() {
   }, [ready, draft.session?.id, setDraft]);
   const stale = Boolean(
     draft.session &&
-    currentMap.data?.map &&
-    draft.session.baseMapRevision !== currentMap.data.map.revision,
+    currentMap.data &&
+    draft.session.baseMapRevision !== currentMap.data.revision,
   );
   const hasFiles = Boolean(
     draft.session?.assets?.json && draft.session?.assets?.png,
@@ -137,6 +144,10 @@ function UpdatesWorkspace() {
     ? { id: draft.submittedOperation }
     : null;
   async function start() {
+    if (!validBase) {
+      setError(new ApiError("INVALID_BASE_FORMAT"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -163,7 +174,7 @@ function UpdatesWorkspace() {
     }
   }
   async function stage(file: File | undefined, kind: "json" | "png") {
-    if (!file || !draft.session || uploading) return;
+    if (!file || !draft.session || busy || uploadInFlight.current) return;
     setError(null);
     if (file.size > (kind === "json" ? 2 : 20) * 1024 * 1024) {
       setError(new ApiError("FILE_TOO_LARGE"));
@@ -173,6 +184,9 @@ function UpdatesWorkspace() {
       setError(new ApiError("INVALID_FORMAT"));
       return;
     }
+    uploadInFlight.current = true;
+    dragDepth.current = { json: 0, png: 0 };
+    setDragging(null);
     setUploading(kind);
     setPercent(0);
     try {
@@ -217,6 +231,7 @@ function UpdatesWorkspace() {
     } catch (e) {
       setError(e);
     } finally {
+      uploadInFlight.current = false;
       setUploading(null);
     }
   }
@@ -274,6 +289,17 @@ function UpdatesWorkspace() {
   }
   return (
     <>
+      <section className="form-panel map-version">
+        <strong>{m.latestMapSha}</strong>
+        {currentMap.loading ? (
+          <Loading />
+        ) : currentMap.error ? (
+          <ErrorNotice error={currentMap.error} />
+        ) : currentMap.data ? (
+          <code className="full-hash">{currentMap.data.revision}</code>
+        ) : null}
+        <p className="field-hint">{m.latestMapShaHelp}</p>
+      </section>
       <ol className="workflow-steps">
         {[m.stepStart, m.stepUpload, m.stepReview].map((label, i) => (
           <li
@@ -311,23 +337,29 @@ function UpdatesWorkspace() {
           <details className="known-base">
             <summary>{m.baseKnown}</summary>
             <p>{m.baseKnownHelp}</p>
-            <Field label={m.baseCommit}>
+            <Field label={m.baseCommit} hint={m.baseFormatHint}>
               <input
                 className="mono"
                 value={baseCommit}
-                maxLength={40}
-                pattern="[a-fA-F0-9]{40}"
-                onChange={(e) => setBaseCommit(e.target.value)}
+                maxLength={71}
+                aria-invalid={!validBase}
+                aria-describedby={!validBase ? "base-format-error" : undefined}
+                onChange={(e) => {
+                  setBaseCommit(e.target.value);
+                  setError(null);
+                }}
               />
             </Field>
           </details>
+          {!validBase && (
+            <p id="base-format-error" role="alert" className="field-hint">
+              {m.baseFormatError}
+            </p>
+          )}
           <ErrorNotice error={error} />
           <button
             className="button button-primary"
-            disabled={
-              busy ||
-              Boolean(baseCommit && !/^[a-fA-F0-9]{40}$/.test(baseCommit))
-            }
+            disabled={busy || !validBase}
             onClick={start}
           >
             {busy ? m.loading : m.startUpdate}
@@ -356,8 +388,8 @@ function UpdatesWorkspace() {
           <section className="edit-session-bar">
             <div>
               <span>{m.startVersion}</span>
-              <strong className="mono" title={draft.session.baseCommit}>
-                {draft.session.baseCommit.slice(0, 12)}
+              <strong className="mono full-hash">
+                {draft.session.baseMapRevision}
               </strong>
             </div>
             <a
@@ -408,7 +440,49 @@ function UpdatesWorkspace() {
                 return (
                   <label
                     key={kind}
-                    className={`upload-dropzone ${asset ? "has-file" : ""}`}
+                    className={`upload-dropzone ${asset ? "has-file" : ""} ${dragging === kind ? "is-dragging" : ""}`}
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      if (
+                        busy ||
+                        uploadInFlight.current ||
+                        !event.dataTransfer.types.includes("Files")
+                      )
+                        return;
+                      dragDepth.current[kind] += 1;
+                      setDragging(kind);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect =
+                        busy ||
+                        uploadInFlight.current ||
+                        !event.dataTransfer.types.includes("Files")
+                          ? "none"
+                          : "copy";
+                    }}
+                    onDragLeave={(event) => {
+                      event.preventDefault();
+                      dragDepth.current[kind] = Math.max(
+                        0,
+                        dragDepth.current[kind] - 1,
+                      );
+                      if (dragDepth.current[kind] === 0)
+                        setDragging((current) =>
+                          current === kind ? null : current,
+                        );
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      dragDepth.current[kind] = 0;
+                      setDragging(null);
+                      if (busy || uploadInFlight.current) return;
+                      if (event.dataTransfer.files.length > 1) {
+                        setError(new ApiError("MULTIPLE_FILES"));
+                        return;
+                      }
+                      void stage(event.dataTransfer.files[0], kind);
+                    }}
                   >
                     <input
                       className="sr-only"
@@ -444,9 +518,11 @@ function UpdatesWorkspace() {
                     <span className="upload-action">
                       {uploading === kind
                         ? `${m.uploading} ${percent}%`
-                        : asset
-                          ? m.replaceFile
-                          : m.chooseFile}
+                        : dragging === kind
+                          ? m.dropFile
+                          : asset
+                            ? m.replaceFile
+                            : m.chooseFile}
                     </span>
                     {uploading === kind && (
                       <progress
@@ -604,15 +680,15 @@ function UpdatesWorkspace() {
                 </span>
                 <div>
                   <h3>{value.summary}</h3>
-                  <p>
-                    {formatDate(value.createdAt, locale)}
-                    <span className="dot-separator">·</span>
-                    <span className="mono">
-                      {value.baseMapRevision
-                        .replace("sha256:", "")
-                        .slice(0, 10)}
-                    </span>
-                  </p>
+                  <p>{formatDate(value.createdAt, locale)}</p>
+                  <p>{m.submittedMapSha}</p>
+                  {value.mapRevision ? (
+                    <code className="full-hash">{value.mapRevision}</code>
+                  ) : (
+                    <p className="field-hint">{m.mapShaPending}</p>
+                  )}
+                  <p>{m.startVersion}</p>
+                  <code className="full-hash">{value.baseMapRevision}</code>
                   {value.errorCode && <ErrorNotice error={value.errorCode} />}
                 </div>
                 <div className="history-right">

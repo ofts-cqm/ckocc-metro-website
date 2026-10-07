@@ -97,6 +97,9 @@ export function errorKey(error: unknown): MessageKey {
         ? error
         : ""
   ).toUpperCase();
+  if (/INVALID_BASE_FORMAT/.test(code)) return "baseFormatError";
+  if (/BASE_REVISION_NOT_FOUND/.test(code)) return "baseNotFound";
+  if (/UNAPPROVED_BASE_REVISION/.test(code)) return "baseUnapproved";
   if (/ACCOUNT_EXISTS/.test(code)) return "accountExists";
   if (/CANNOT_DISABLE_SELF/.test(code)) return "cannotDisableSelf";
   if (/LAST_ADMIN/.test(code)) return "lastAdmin";
@@ -118,6 +121,7 @@ export function errorKey(error: unknown): MessageKey {
   if (/CHALLENGE|TURNSTILE|BOT/.test(code)) return "challengeRequired";
   if (/VALIDATION|INVALID_INPUT|BAD_REQUEST|INVALID_BODY/.test(code))
     return "errorValidation";
+  if (/MULTIPLE_FILES/.test(code)) return "errorMultipleFiles";
   if (/UPLOAD|FORMAT|INVALID_JSON|INVALID_PNG/.test(code)) return "errorFile";
   if (/UNAVAILABLE|NOT_CONFIGURED|CONFIGURATION/.test(code))
     return "errorUnavailable";

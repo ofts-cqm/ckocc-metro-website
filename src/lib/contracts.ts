@@ -119,6 +119,7 @@ export type UpdateSummary = {
   createdAt: string;
   updatedAt: string;
   baseMapRevision: string;
+  mapRevision?: string | null;
   prNumber?: number | null;
   prUrl?: string | null;
   errorCode?: string | null;

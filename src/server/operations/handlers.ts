@@ -49,6 +49,7 @@ import {
   ownedEditSession,
   sessionView,
   assertFresh,
+  resolveMapBase,
 } from "@/server/maps/sessions";
 import { publishedMap } from "@/server/maps/publication";
 import {
@@ -265,11 +266,17 @@ export const postCloseIssue = route(async (request, context) => {
 export const postComment = route(async (request, context) => {
   const number = await issueNumber(context);
   const input = await publicInput(request);
-  const payload = commentSchema.parse(input.payload);
+  const user = await optionalUser(request);
+  const payload = commentSchema.parse(
+    user ? { ...input.payload, gameName: user.name } : input.payload,
+  );
   commentTemplate(payload, "00000000-0000-0000-0000-000000000000");
   const operation = await acceptOperation({
     kind: "comment",
-    scope: `public:comment:${number}`,
+    scope: user
+      ? `user:${user.id}:comment:${number}`
+      : `public:comment:${number}`,
+    actorId: user?.id,
     key: input.key,
     receiptToken: input.receiptToken,
     payload: { ...payload, issueNumber: number },
@@ -305,6 +312,12 @@ export const getOperationStatus = route(async (request, context) => {
   return json({ operation: operationView(op) });
 });
 
+export const getMapHead = route(async (request) => {
+  await requireUser(request);
+  const { commit, manifest } = await resolveMapBase();
+  return json({ revision: manifest.map_revision, commitSha: commit });
+});
+
 export const postEditSession = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -312,7 +325,9 @@ export const postEditSession = route(async (request) => {
     .object({
       baseCommit: z
         .string()
-        .regex(/^[a-f0-9]{40}$/)
+        .trim()
+        .toLowerCase()
+        .regex(/^(?:[a-f0-9]{40}|(?:sha256:)?[a-f0-9]{64})$/)
         .optional(),
     })
     .strict()
@@ -492,6 +507,12 @@ export const getUpdates = route(async (request) => {
     createdAt: new Date(op.created_at).toISOString(),
     updatedAt: new Date(op.updated_at).toISOString(),
     baseMapRevision: String(op.payload.baseMapRevision),
+    mapRevision:
+      typeof op.result.mapRevision === "string"
+        ? op.result.mapRevision
+        : typeof op.checkpoint.mapRevision === "string"
+          ? op.checkpoint.mapRevision
+          : null,
     prNumber:
       typeof op.result.prNumber === "number" ? op.result.prNumber : null,
     prUrl: typeof op.result.prUrl === "string" ? op.result.prUrl : null,
@@ -512,6 +533,12 @@ export const getUpdates = route(async (request) => {
     summary: String(op.payload.summary),
     createdAt: new Date(op.created_at).toISOString(),
     baseMapRevision: String(op.payload.baseMapRevision),
+    mapRevision:
+      typeof op.result.mapRevision === "string"
+        ? op.result.mapRevision
+        : typeof op.checkpoint.mapRevision === "string"
+          ? op.checkpoint.mapRevision
+          : null,
     prNumber: op.result.prNumber ?? null,
     prUrl: op.result.prUrl ?? null,
   }));

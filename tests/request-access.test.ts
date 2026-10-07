@@ -24,6 +24,7 @@ let invalidations: number;
 let authorizations: number;
 let finished: string[];
 let timeoutAfterWrite: boolean;
+let challengeAction: "request" | "comment";
 
 function makeIssue() {
   return {
@@ -157,6 +158,7 @@ beforeEach((t) => {
   invalidations = 0;
   authorizations = 0;
   timeoutAfterWrite = false;
+  challengeAction = "request";
   process.env.ABUSE_HASH_SECRET = "a".repeat(32);
   process.env.TURNSTILE_SECRET_KEY = "test-secret";
   t.mock.method(globalThis, "fetch", async (url: unknown) => {
@@ -166,7 +168,7 @@ beforeEach((t) => {
     );
     return Response.json({
       success: true,
-      action: "request",
+      action: challengeAction,
       hostname: "localhost",
     });
   });
@@ -192,7 +194,24 @@ const general = {
   receiptToken: "a".repeat(43),
 };
 
+const { kind: _requestKind, ...comment } = general;
+
 for (const role of ["collaborator", "admin"] as const) {
+  test(`${role} comments use the account name, including omitted or forged names`, async () => {
+    user.role = role;
+    challengeAction = "comment";
+    for (const gameName of [undefined, "ForgedPlayer", null, "bad\nname"]) {
+      const response = await handlers.postComment(
+        request({ ...comment, gameName }),
+        context,
+      );
+      assert.equal(response.status, 202, await response.text());
+      assert.equal(accepted.at(-1)?.payload.gameName, "AccountPlayer");
+      assert.equal(accepted.at(-1)?.actorId, user.id);
+      assert.equal(accepted.at(-1)?.scope, `user:${user.id}:comment:42`);
+    }
+  });
+
   test(`${role} requests use the account name, including omitted or forged names`, async () => {
     user.role = role;
     for (const gameName of [undefined, "ForgedPlayer", null, "bad\nname"]) {
@@ -279,8 +298,34 @@ test("disabled and revoked sessions cannot submit or close as collaborators", as
       (await handlers.postCloseIssue(request({}), context)).status,
       401,
     );
+    assert.equal(
+      (
+        await handlers.postComment(
+          request({ ...comment, gameName: "Forged" }),
+          context,
+        )
+      ).status,
+      401,
+    );
   }
   assert.equal(accepted.length, 0);
+});
+
+test("anonymous comments require and preserve the visitor's supplied name", async () => {
+  signedIn = false;
+  challengeAction = "comment";
+  assert.equal(
+    (await handlers.postComment(request(comment), context)).status,
+    422,
+  );
+  const response = await handlers.postComment(
+    request({ ...comment, gameName: "Visitor" }),
+    context,
+  );
+  assert.equal(response.status, 202, await response.text());
+  assert.equal(accepted[0].payload.gameName, "Visitor");
+  assert.equal(accepted[0].actorId, undefined);
+  assert.equal(accepted[0].scope, "public:comment:42");
 });
 
 test("closing rejects foreign origins, non-request issues, PRs and extra authority", async () => {

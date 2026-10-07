@@ -208,8 +208,9 @@ const en = {
   details: "What changed?",
   uploadJson: "Map document (.json)",
   uploadPng: "Rendered map (.png)",
-  chooseFile: "Choose file",
-  replaceFile: "Replace file",
+  chooseFile: "Choose or drop a file",
+  replaceFile: "Replace or drop a file",
+  dropFile: "Drop file here",
   jsonLimit: "JSON · up to 2 MiB",
   pngLimit: "PNG · up to 20 MiB",
   uploading: "Uploading",
@@ -256,8 +257,22 @@ const en = {
   signedOutBody: "Map updates are available to invited collaborators.",
   baseKnown: "Already editing a downloaded map?",
   baseKnownHelp:
-    "Enter the full starting commit. If you do not know it, ask an administrator to help reconcile your changes.",
-  baseCommit: "Starting commit SHA",
+    "Enter the map SHA-256 of the version you downloaded. Copy it from this page or your update history. If you do not know it, ask an administrator to help reconcile your changes.",
+  baseCommit: "Starting map SHA-256",
+  latestMapSha: "Current approved map SHA-256",
+  latestMapShaHelp:
+    "This is the current map on the main branch, including any reverted updates. Use the version you actually downloaded as your starting version.",
+  submittedMapSha: "Submitted map SHA-256",
+  mapShaPending: "Available after the uploaded files have been validated.",
+  baseFormatHint:
+    "Use 64 hexadecimal characters (0–9, a–f), optionally prefixed with sha256:. A full 40-character Git commit SHA is also accepted.",
+  baseFormatError:
+    "Invalid format. Enter a full 64-character map SHA-256 or 40-character Git commit SHA.",
+  baseNotFound:
+    "This version was not found in approved map history. Check the hash and use the map version hash, rather than a JSON or PNG file hash.",
+  baseUnapproved:
+    "This commit is not part of approved map history. Ask an administrator to reconcile your changes.",
+
   pendingUpdates: "Other updates in review",
   pendingInvitations: "Pending invitations",
   revokeInvitation: "Revoke invitation",
@@ -325,6 +340,7 @@ const en = {
   errorConflict:
     "This submission has already changed. Refresh its status before trying again.",
   errorFile: "Choose a valid JSON map document and PNG image.",
+  errorMultipleFiles: "Drop one file at a time into its matching upload area.",
   errorInvitation: "This link is invalid, expired, or has already been used.",
   requiredFiles:
     "Upload both the JSON document and PNG image before submitting.",
@@ -527,8 +543,9 @@ const cn: Messages = {
   details: "具体变更",
   uploadJson: "地图文档（.json）",
   uploadPng: "渲染地图（.png）",
-  chooseFile: "选择文件",
-  replaceFile: "替换文件",
+  chooseFile: "选择或拖入文件",
+  replaceFile: "替换或拖入文件",
+  dropFile: "将文件放在此处",
   jsonLimit: "JSON · 最大 2 MiB",
   pngLimit: "PNG · 最大 20 MiB",
   uploading: "正在上传",
@@ -569,8 +586,21 @@ const cn: Messages = {
   signedOutBody: "地图更新仅对受邀协作者开放。",
   baseKnown: "已经在编辑下载的地图？",
   baseKnownHelp:
-    "请输入原始版本的完整提交哈希。如果不清楚，请让管理员协助核对变更。",
-  baseCommit: "起始提交 SHA",
+    "请输入你下载的地图版本的 SHA-256，可从本页或更新历史复制。如果不清楚，请让管理员协助核对变更。",
+  baseCommit: "起始地图 SHA-256",
+  latestMapSha: "当前已审核地图 SHA-256",
+  latestMapShaHelp:
+    "此版本来自主分支，包含已撤销更新的结果。请以你实际下载的版本作为起始版本。",
+  submittedMapSha: "提交地图 SHA-256",
+  mapShaPending: "上传文件通过验证后显示。",
+  baseFormatHint:
+    "请输入 64 位十六进制字符（0–9、a–f），可带 sha256: 前缀。也接受完整的 40 位 Git 提交 SHA。",
+  baseFormatError:
+    "格式错误：请输入完整的 64 位地图 SHA-256 或 40 位 Git 提交 SHA。",
+  baseNotFound:
+    "在已审核地图历史中未找到此版本。请检查哈希，使用地图版本哈希，而非 JSON 或 PNG 文件哈希。",
+  baseUnapproved: "此提交不属于已审核地图历史，请让管理员协助核对变更。",
+
   pendingUpdates: "其他待审核的更新",
   pendingInvitations: "待使用的邀请",
   revokeInvitation: "撤销邀请",
@@ -629,6 +659,7 @@ const cn: Messages = {
   errorClosed: "此讨论已停止接收评论。",
   errorConflict: "此提交的状态已改变，请刷新状态后重试。",
   errorFile: "请选择有效的 JSON 地图文档与 PNG 图片。",
+  errorMultipleFiles: "请每次将一个文件拖入对应的上传区域。",
   errorInvitation: "链接无效、已过期或已被使用。",
   requiredFiles: "请先上传 JSON 文档与 PNG 图片。",
   discardConfirm: "确定丢弃已保存的更新草稿？",
@@ -826,8 +857,9 @@ const hk: Messages = {
   details: "改動詳情",
   uploadJson: "地圖檔案（.json）",
   uploadPng: "匯出地圖（.png）",
-  chooseFile: "選擇檔案",
-  replaceFile: "更換檔案",
+  chooseFile: "選擇或拖入檔案",
+  replaceFile: "更換或拖入檔案",
+  dropFile: "將檔案放在此處",
   jsonLimit: "JSON · 上限 2 MiB",
   pngLimit: "PNG · 上限 20 MiB",
   uploading: "上載中",
@@ -868,8 +900,21 @@ const hk: Messages = {
   signedOutBody: "地圖更新只供獲邀的協作者使用。",
   baseKnown: "已經在編輯下載的地圖？",
   baseKnownHelp:
-    "請輸入原始版本的完整提交雜湊值。如不清楚，請管理員協助核對改動。",
-  baseCommit: "起始提交 SHA",
+    "請輸入你下載的地圖版本的 SHA-256，可從本頁或更新歷史複製。如不清楚，請管理員協助核對改動。",
+  baseCommit: "起始地圖 SHA-256",
+  latestMapSha: "目前已審核地圖 SHA-256",
+  latestMapShaHelp:
+    "此版本來自主分支，包含已撤銷更新的結果。請以你實際下載的版本作為起始版本。",
+  submittedMapSha: "提交地圖 SHA-256",
+  mapShaPending: "上傳檔案通過驗證後顯示。",
+  baseFormatHint:
+    "請輸入 64 位十六進位字元（0–9、a–f），可帶 sha256: 前綴。亦接受完整的 40 位 Git 提交 SHA。",
+  baseFormatError:
+    "格式錯誤：請輸入完整的 64 位地圖 SHA-256 或 40 位 Git 提交 SHA。",
+  baseNotFound:
+    "在已審核地圖歷史中找不到此版本。請檢查雜湊值，使用地圖版本雜湊值，而非 JSON 或 PNG 檔案雜湊值。",
+  baseUnapproved: "此提交不屬於已審核地圖歷史，請管理員協助核對改動。",
+
   pendingUpdates: "其他待審核的更新",
   pendingInvitations: "未使用的邀請",
   revokeInvitation: "撤銷邀請",
@@ -928,6 +973,7 @@ const hk: Messages = {
   errorClosed: "此討論已停止接收留言。",
   errorConflict: "此提交的狀態已改變，請重新載入狀態後再試。",
   errorFile: "請選擇有效的 JSON 地圖檔案及 PNG 圖片。",
+  errorMultipleFiles: "請每次將一個檔案拖入相應的上載區域。",
   errorInvitation: "連結無效、已過期或已被使用。",
   requiredFiles: "請先上載 JSON 檔案及 PNG 圖片。",
   discardConfirm: "確定捨棄已儲存的更新草稿？",
