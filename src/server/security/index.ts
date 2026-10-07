@@ -54,6 +54,13 @@ export function abuseDigest(value: string): string {
 
 type Limit = { key: string; max: number; seconds: number };
 
+function submissionLimit(name: string, fallback: number): number {
+  const value = process.env[name]?.trim();
+  if (!value || !/^\d+$/.test(value)) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /** Fixed windows are incremented in one transaction and survive serverless instance changes. */
 export async function enforceRateLimits(limits: Limit[]): Promise<void> {
   if (
@@ -140,12 +147,18 @@ export async function requireAnonymousWrite(
   await enforceRateLimits([
     {
       key: `${action}-hour:${ip}`,
-      max: action === "request" ? 3 : 10,
+      max:
+        action === "request"
+          ? submissionLimit("NEW_REQUESTS_PER_HOUR", 3)
+          : submissionLimit("NEW_COMMENTS_PER_HOUR", 10),
       seconds: 3600,
     },
     {
       key: `${action}-day:${ip}`,
-      max: action === "request" ? 10 : 30,
+      max:
+        action === "request"
+          ? submissionLimit("NEW_REQUESTS_PER_DAY", 10)
+          : submissionLimit("NEW_COMMENTS_PER_DAY", 30),
       seconds: 86_400,
     },
   ]);

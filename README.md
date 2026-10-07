@@ -40,6 +40,8 @@ Website login also needs `APP_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and
 
 For temporary local testing, set `DISABLE_RATE_LIMITS=true` in `.env.local`. This skips application rate limits in development/test; production always enforces them. Set it back to `false` (or remove it) to restore limits. Restart the development server after changing it. Authentication, Turnstile, and the public-submission pause still apply.
 
+Configure per-IP limits for new requests and comments in `.env.local` (or your deployment environment): `NEW_REQUESTS_PER_HOUR=3`, `NEW_REQUESTS_PER_DAY=10`, `NEW_COMMENTS_PER_HOUR=10`, and `NEW_COMMENTS_PER_DAY=30`. Values must be positive integers; missing or invalid values use the defaults shown here. The hourly and daily windows remain fixed at one hour and one day. Restart the server after changing these options.
+
 ### Project-local PostgreSQL
 
 The development database on this machine is `ckocc_metro_dev` at `127.0.0.1:5433`, using the non-superuser role `ckocc_metro`. Its random password is stored in the ignored, owner-readable `.env.local`. PostgreSQL listens only on loopback; local administrator access uses operating-system peer authentication through the private project socket.
