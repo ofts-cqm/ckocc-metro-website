@@ -31,8 +31,7 @@ async function authenticated(request: Request) {
     headers: request.headers,
     query: { disableCookieCache: true },
   });
-  if (!session)
-    throw new AppError("unauthorized", "Please sign in to continue.", 401);
+  if (!session) return null;
   const current = await query(
     `SELECT s.id FROM "session" s JOIN metro_profiles p ON p.user_id = s."userId"
      WHERE s.id = $1 AND s."expiresAt" > now() AND p.active AND s."authVersion" = p.auth_version`,
@@ -50,14 +49,27 @@ async function authenticated(request: Request) {
 }
 
 export async function requireUser(request: Request): Promise<ActiveUser> {
-  return (await authenticated(request)).user;
+  const user = await optionalUser(request);
+  if (!user)
+    throw new AppError("unauthorized", "Please sign in to continue.", 401);
+  return user;
+}
+
+/** Missing sessions are anonymous; invalid or disabled sessions still fail authorization. */
+export async function optionalUser(
+  request: Request,
+): Promise<ActiveUser | null> {
+  return (await authenticated(request))?.user ?? null;
 }
 
 export async function requireAdmin(
   request: Request,
   options: { fresh?: boolean } = {},
 ): Promise<ActiveUser> {
-  const { user, session } = await authenticated(request);
+  const authenticatedSession = await authenticated(request);
+  if (!authenticatedSession)
+    throw new AppError("unauthorized", "Please sign in to continue.", 401);
+  const { user, session } = authenticatedSession;
   if (user.role !== "admin")
     throw new AppError("forbidden", "Administrator access is required.", 403);
   if (

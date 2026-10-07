@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,16 +9,21 @@ import type { IssueComment, IssueDetail } from "@/lib/contracts";
 import { CommentForm, lineTypeKey } from "./public-forms";
 import {
   EmptyState,
+  api,
   ErrorNotice,
   ExternalAnchor,
   formatDate,
   Loading,
   localeHref,
   Notice,
+  OperationProgress,
+  readReceipt,
   StatusBadge,
   useApi,
+  useAuth,
   useLocale,
   useMessages,
+  type Receipt,
 } from "./ui";
 
 export function SafeMarkdown({ children }: { children: string }) {
@@ -124,9 +129,61 @@ function RequestContent({ issue }: { issue: IssueDetail }) {
   );
 }
 
+function CloseIssueAction({
+  number,
+  onSuccess,
+}: {
+  number: number;
+  onSuccess: () => void;
+}) {
+  const m = useMessages();
+  const key = useRef<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  async function closeIssue() {
+    if (busy || receipt) return;
+    setBusy(true);
+    setError(null);
+    key.current ??= crypto.randomUUID();
+    try {
+      const response = await api<{ operation: { id: string } }>(
+        `/api/issues/${number}/close`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": key.current },
+          body: "{}",
+        },
+      );
+      setReceipt(readReceipt(response));
+    } catch (error) {
+      setError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="issue-actions">
+      {receipt ? (
+        <OperationProgress receipt={receipt} onSuccess={onSuccess} />
+      ) : (
+        <button
+          className="button button-secondary"
+          disabled={busy}
+          onClick={closeIssue}
+        >
+          {busy ? m.closingRequest : m.closeRequest}
+        </button>
+      )}
+      <ErrorNotice error={error} />
+    </div>
+  );
+}
+
 export function IssuePage({ number }: { number: number }) {
   const m = useMessages();
   const locale = useLocale();
+  const auth = useAuth();
   const issueResult = useApi<{ issue: IssueDetail }>(`/api/issues/${number}`);
   const [page, setPage] = useState(1);
   const commentsResult = useApi<{
@@ -141,7 +198,9 @@ export function IssuePage({ number }: { number: number }) {
         <ArrowLeft size={15} />
         {m.requests}
       </Link>
-      {issueResult.loading ? (
+      {/* Preserve the form during refreshes so a saved successful receipt does
+          not remount, report success again, and trigger another refresh. */}
+      {issueResult.loading && !issue ? (
         <Loading />
       ) : !issue ? (
         <EmptyState title={m.issueMissing} description={m.issueMissingBody}>
@@ -187,6 +246,17 @@ export function IssuePage({ number }: { number: number }) {
             <div className="original-link">
               <ExternalAnchor href={issue.url}>{m.github}</ExternalAnchor>
             </div>
+            {auth.user && issue.state === "open" && (
+              <CloseIssueAction
+                key={`${number}:${auth.user.id}`}
+                number={number}
+                onSuccess={() => {
+                  issueResult.refresh();
+                  commentsResult.refresh();
+                }}
+              />
+            )}
+            <ErrorNotice error={issueResult.error} />
           </article>
           <section className="discussion-comments">
             <div className="section-heading compact">

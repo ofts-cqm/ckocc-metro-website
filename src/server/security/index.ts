@@ -56,6 +56,11 @@ type Limit = { key: string; max: number; seconds: number };
 
 /** Fixed windows are incremented in one transaction and survive serverless instance changes. */
 export async function enforceRateLimits(limits: Limit[]): Promise<void> {
+  if (
+    process.env.DISABLE_RATE_LIMITS === "true" &&
+    (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test")
+  )
+    return;
   const now = Date.now();
   const normalized = limits
     .map((limit) => ({

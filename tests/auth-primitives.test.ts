@@ -49,6 +49,7 @@ test("password hashes use independent salts and preserve the exact password", as
 });
 
 test("password bounds reject invalid values without trimming or truncation", () => {
+  assert.equal(MIN_PASSWORD_LENGTH, 8);
   assert.equal(validPassword("x".repeat(MIN_PASSWORD_LENGTH)), true);
   assert.equal(validPassword("x".repeat(MAX_PASSWORD_LENGTH)), true);
   for (const password of [
@@ -57,7 +58,7 @@ test("password bounds reject invalid values without trimming or truncation", () 
     "x".repeat(MAX_PASSWORD_LENGTH + 1),
   ]) {
     assert.equal(validPassword(password), false);
-    assert.throws(() => hashPassword(password), /12 to 128/);
+    assert.throws(() => hashPassword(password), /8 to 128/);
   }
   for (const password of [
     null,
@@ -68,6 +69,16 @@ test("password bounds reject invalid values without trimming or truncation", () 
   ]) {
     assert.equal(validPassword(password), false);
   }
+});
+
+test("eight-character passwords can be hashed and verified", async () => {
+  const password = "metro123";
+  const encoded = await hashPassword(password);
+  assert.equal(await verifyPassword({ hash: encoded, password }), true);
+  assert.equal(
+    await verifyPassword({ hash: encoded, password: "metro12" }),
+    false,
+  );
 });
 
 test("rehash policy upgrades older or weaker parameters without downgrading stronger hashes", () => {

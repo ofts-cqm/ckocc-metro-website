@@ -30,6 +30,7 @@ import {
   randomToken,
   readReceipt,
   useDraft,
+  useAuth,
   useLocale,
   useMessages,
   type Receipt,
@@ -101,6 +102,7 @@ type PublicAttempt = {
 export function RequestFormPage() {
   const m = useMessages();
   const locale = useLocale();
+  const auth = useAuth();
   const [draft, setDraft, clearDraft, ready] = useDraft(
     "request-draft-v1",
     initialRequest,
@@ -113,6 +115,7 @@ export function RequestFormPage() {
     useDraft<PublicAttempt | null>("request-attempt-v1", null);
   const receipt = attempt?.receipt ?? null;
   const [done, setDone] = useState(false);
+  const gameName = auth.user?.name ?? draft.gameName;
   const set = <K extends keyof RequestDraft>(key: K, value: RequestDraft[K]) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
   const setStation = (id: string, values: Partial<StationDraft>) =>
@@ -134,7 +137,7 @@ export function RequestFormPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || receipt) return;
+    if (busy || receipt || auth.loading) return;
     setError(null);
     if (!challengeToken) {
       setError(new ApiError("CHALLENGE_REQUIRED"));
@@ -159,13 +162,13 @@ export function RequestFormPage() {
       draft.kind === "general"
         ? {
             kind: draft.kind,
-            gameName: draft.gameName,
+            gameName,
             locale: languageTags[locale],
             comment: draft.comment,
           }
         : {
             kind: draft.kind,
-            gameName: draft.gameName,
+            gameName,
             locale: languageTags[locale],
             lineName: draft.lineName,
             lineNumber: draft.lineNumber,
@@ -293,13 +296,17 @@ export function RequestFormPage() {
           </fieldset>
           <fieldset
             className="form-panel"
-            disabled={busy || !ready || !attemptReady}
+            disabled={busy || !ready || !attemptReady || auth.loading}
           >
-            <Field label={m.gameName} hint={m.gameNameHint}>
+            <Field
+              label={m.gameName}
+              hint={auth.user ? m.accountGameNameHint : m.gameNameHint}
+            >
               <input
                 name="gameName"
                 autoComplete="nickname"
-                value={draft.gameName}
+                value={gameName}
+                readOnly={!!auth.user}
                 maxLength={64}
                 required
                 onChange={(e) => set("gameName", e.target.value)}

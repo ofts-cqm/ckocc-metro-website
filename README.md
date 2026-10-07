@@ -4,11 +4,13 @@ A metro map and request portal for the Minecraft server, built with Next.js, Pos
 
 Players submit requests and comments without an account. Invited collaborators upload a Rail Map Painter JSON/PNG pair and submit a PR. An administrator reviews and merges in GitHub. The website publishes approved map revisions.
 
+Signed-in collaborators and administrators can close public requests from the request page. Their account's in-game display name is automatically attached to general and line-update requests and cannot be changed in the form or overridden through the submission API.
+
 The interface supports `/en-us`, `/zh-cn`, and `/zh-hk`. Station dimensions accept arbitrary text and default to `overworld`; English names and line identifiers are optional, and line numbers are strings.
 
 ## Current handoff
 
-Implementation and local database setup are in this workspace. The owner reports that unit tests and the build passed. **Browser testing, hosted integration testing, and deployment remain pending.** See [implementation status and next-session checklist](IMPLEMENTATION_STATUS.md) and the [agreed design](IMPLEMENTATION_PLAN.md).
+Implementation and local database setup are in this workspace. Login and service connections have received focused live checks. The owner chose comprehensive local acceptance against `ofts-cqm/ckocc-metro-map-test`, followed by a brief check after deployment. See the [current testing decision and checklist](IMPLEMENTATION_STATUS.md#current-testing-decision--6-october-2026) and the [original design](IMPLEMENTATION_PLAN.md).
 
 ## Local development
 
@@ -19,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-Without backend configuration, the home page uses the real, approved bootstrap map and indicates that requests are unavailable. It does not fabricate discussion or account data. The small local overview avoids loading the 160-million-pixel original on initial display; the original remains available through the full-detail link.
+Until the first map publication is ready, the home page uses the real, approved bootstrap map and marks it as a reference snapshot. Configuring PostgreSQL alone does not remove this map. The small local overview avoids loading the 160-million-pixel original on initial display; the original remains available through the full-detail link.
 
 For backend work, copy `.env.example` to **`.env.local`**, leaving the existing secret `.env` and PEM intact. Fill the documented variables using separate development resources. Next.js loads these files; the operator commands load `.env` then `.env.local`. Environment variables already exported in the shell take precedence.
 
@@ -31,6 +33,12 @@ npm run admin:bootstrap
 ```
 
 Bootstrap prompts for email, display name, and a hidden password in an interactive terminal. It refuses if an administrator already exists. Admins then create invitations through the website. There is no public registration or public bootstrap route. Migration checksums are recorded; add a new migration after deployment instead of editing an applied file. Use a direct database connection for migrations because their advisory lock is session-scoped; the app's normal `DATABASE_URL` can use transaction pooling.
+
+Bootstrap checks database access before requesting a password. Failures identify the affected step and provide specific guidance for invalid inputs, mismatched passwords, existing accounts, connection failures, and missing migrations; raw provider errors and credentials are never printed. Passwords must contain 8–128 characters, including any spaces. If the command fails, share only its final error message, never your password or `DATABASE_URL`.
+
+Website login also needs `APP_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `ABUSE_HASH_SECRET` in `.env.local`; database setup and administrator bootstrap alone do not configure login. For local development, use `http://localhost:3000` for both URLs and generate independent random secrets of at least 32 characters. Restart `npm run dev` after changing environment variables. Open the site using the configured URL so login's origin check matches.
+
+For temporary local testing, set `DISABLE_RATE_LIMITS=true` in `.env.local`. This skips application rate limits in development/test; production always enforces them. Set it back to `false` (or remove it) to restore limits. Restart the development server after changing it. Authentication, Turnstile, and the public-submission pause still apply.
 
 ### Project-local PostgreSQL
 
@@ -60,7 +68,7 @@ npm run build
 
 These are compilation commands, not functional acceptance tests.
 
-The owner reports that the npm tests and build passed. Local database setup also verified migration checksums, expected tables, application permissions, a transaction-scoped advisory lock, and a write/read/rollback. Browser and staging integration cases remain in the acceptance checklist.
+The owner reports that the npm tests and build passed. Local database setup also verified migration checksums, expected tables, application permissions, a transaction-scoped advisory lock, and a write/read/rollback. The current local acceptance checklist covers the main browser and integration journeys before deployment.
 
 ## Configuration
 
@@ -80,6 +88,8 @@ All variables are listed in [.env.example](.env.example). Generate independent s
 | `CRON_SECRET` | Bearer secret for `/api/internal/repair`. `vercel.json` schedules daily repair; admins can retry/sync immediately in the UI. |
 
 The old lowercase keys in the existing `.env` are retained as supplied. Runtime configuration uses uppercase names; the code does not discover PEM files automatically. Never expose server variables with a `NEXT_PUBLIC_` prefix. Never use production write credentials in preview deployments.
+
+`/api/issues` needs the GitHub runtime settings above, even when PostgreSQL and login already work. Map metadata and saved update history do not wait for background reconciliation; when GitHub is configured, reads can schedule a status refresh after the response. Without public Blob storage, that refresh checks PR status but skips image publication. Uploading new files still requires private Blob storage, publishing new maps requires public Blob storage, and anonymous submissions require Turnstile.
 
 ## Map repository and safeguards
 

@@ -7,7 +7,7 @@ import { repositoryConfig } from "@/server/github/client";
 
 export interface Operation {
   id: string;
-  kind: "request" | "comment" | "update" | "sync";
+  kind: "request" | "comment" | "close-issue" | "update" | "sync";
   scope: string;
   idempotency_key: string;
   request_digest: string;

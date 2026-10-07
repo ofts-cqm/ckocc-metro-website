@@ -24,6 +24,26 @@ export function repositoryConfig() {
   return { owner, repo, branch, key: `${owner}/${repo}` };
 }
 
+/** Optional read-triggered syncs must not run before the GitHub connection is configured. */
+export function githubConfigured(): boolean {
+  try {
+    repositoryConfig();
+  } catch {
+    return false;
+  }
+  if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN?.trim()) return true;
+  const installationId = Number(
+    process.env.GITHUB_INSTALLATION_ID ||
+      process.env.GITHUB_APP_INSTALLATION_ID,
+  );
+  return Boolean(
+    process.env.GITHUB_APP_ID?.trim() &&
+    process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
+    Number.isSafeInteger(installationId) &&
+    installationId > 0,
+  );
+}
+
 /** Disable SDK write retries: operation-specific recovery owns all retries. */
 const SafeOctokit = Octokit.defaults({
   request: { timeout: 25_000 },

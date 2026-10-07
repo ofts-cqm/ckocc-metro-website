@@ -6,12 +6,23 @@ import {
   createCredentialAccount,
   lockIdentityStore,
 } from "../src/server/auth/credentials";
-import { hashPassword, validPassword } from "../src/server/auth/password";
+import {
+  hashPassword,
+  validPassword,
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from "../src/server/auth/password";
+import {
+  BootstrapError,
+  bootstrapFailureMessage,
+  type BootstrapStage,
+} from "./lib/bootstrap-errors";
+
+let stage: BootstrapStage = "reading account details";
 
 /** Read a password from a terminal without echoing it or accepting command-line secrets. */
 function hiddenPassword(label: string): Promise<string> {
-  if (!stdin.isTTY || !stdout.isTTY)
-    throw new Error("An interactive terminal is required.");
+  if (!stdin.isTTY || !stdout.isTTY) throw new BootstrapError("terminal");
   stdout.write(label);
   stdin.setRawMode(true);
   stdin.resume();
@@ -29,7 +40,7 @@ function hiddenPassword(label: string): Promise<string> {
     const onData = (data: string) => {
       for (const character of data) {
         if (character === "\u0003") {
-          finish(new Error("Cancelled."));
+          finish(new BootstrapError("cancelled"));
           return;
         }
         if (character === "\r" || character === "\n") {
@@ -48,37 +59,53 @@ function hiddenPassword(label: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  if (!stdin.isTTY || !stdout.isTTY)
-    throw new Error("Run this command in an interactive terminal.");
+  if (!stdin.isTTY || !stdout.isTTY) throw new BootstrapError("terminal");
   const terminal = createInterface({ input: stdin, output: stdout });
-  const email = z
-    .string()
-    .email()
-    .max(254)
-    .parse(
-      (await terminal.question("Administrator email: ")).trim().toLowerCase(),
-    );
-  const name = z
-    .string()
-    .min(1)
-    .max(64)
-    .refine((value) => !/[\u0000-\u001f\u007f]/u.test(value))
-    .parse((await terminal.question("In-game display name: ")).trim());
-  terminal.close();
-  const password = await hiddenPassword("Password (12–128 characters): ");
-  if (!validPassword(password)) throw new Error("Invalid password length.");
+  let email: string;
+  let name: string;
+  try {
+    const emailResult = z
+      .string()
+      .email()
+      .max(254)
+      .safeParse(
+        (await terminal.question("Administrator email: ")).trim().toLowerCase(),
+      );
+    if (!emailResult.success) throw new BootstrapError("email");
+    email = emailResult.data;
+    const nameResult = z
+      .string()
+      .min(1)
+      .max(64)
+      .refine((value) => !/[\u0000-\u001f\u007f]/u.test(value))
+      .safeParse((await terminal.question("In-game display name: ")).trim());
+    if (!nameResult.success) throw new BootstrapError("name");
+    name = nameResult.data;
+  } finally {
+    terminal.close();
+  }
+  stage = "checking the database";
+  if (!process.env.DATABASE_URL) throw new BootstrapError("configured");
+  const existing = await getPool().query(
+    "SELECT 1 FROM metro_profiles WHERE role = 'admin' LIMIT 1",
+  );
+  if (existing.rowCount) throw new BootstrapError("existing");
+  stage = "reading the password";
+  const password = await hiddenPassword(
+    `Password (${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters): `,
+  );
+  if (!validPassword(password)) throw new BootstrapError("password");
   if (password !== (await hiddenPassword("Confirm password: ")))
-    throw new Error("Passwords do not match.");
+    throw new BootstrapError("confirmation");
+  stage = "hashing the password";
   const passwordHash = await hashPassword(password);
+  stage = "saving the administrator";
   const id = await transaction(async (client) => {
     await lockIdentityStore(client);
     const existing = await client.query(
       "SELECT user_id FROM metro_profiles WHERE role = 'admin'",
     );
-    if (existing.rowCount)
-      throw new Error(
-        "An administrator already exists. Use an invitation or account recovery process.",
-      );
+    if (existing.rowCount) throw new BootstrapError("existing");
     const userId = await createCredentialAccount(client, {
       email,
       name,
@@ -95,10 +122,8 @@ async function main(): Promise<void> {
 }
 
 main()
-  .catch(() => {
-    console.error(
-      "Administrator bootstrap failed. Check the email, display name, matching password length, migrations, and database connection. Bootstrap requires that no administrator already exists.",
-    );
+  .catch((error: unknown) => {
+    console.error(bootstrapFailureMessage(error, stage));
     process.exitCode = 1;
   })
   .finally(async () => {

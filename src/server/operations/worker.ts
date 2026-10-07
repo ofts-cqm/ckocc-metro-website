@@ -11,6 +11,7 @@ import {
   statusOf,
 } from "./errors";
 import { processDiscussion } from "./discussion";
+import { processCloseIssue } from "./close-issue";
 import { processUpdate } from "./update";
 import {
   synchronizePublication,
@@ -39,8 +40,13 @@ export async function executeOperation(
       if (op.kind === "sync" && actor.role !== "admin")
         throw new PipelineError("forbidden", 403);
     }
+    if (op.kind === "close-issue" && !op.actor_id)
+      throw new PipelineError("unauthorized", 401);
     if (op.kind === "request" || op.kind === "comment") {
       const result = await processDiscussion(op, token);
+      await finishOperation(id, token, "succeeded", result);
+    } else if (op.kind === "close-issue") {
+      const result = await processCloseIssue(op, token);
       await finishOperation(id, token, "succeeded", result);
     } else if (op.kind === "update") {
       const result = await processUpdate(op, token);

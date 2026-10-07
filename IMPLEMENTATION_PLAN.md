@@ -1,6 +1,8 @@
 # Minecraft metro website implementation plan
 
-Planning date: 6 October 2026. This document records the agreed design. The owner subsequently authorized bot verification, map repository initialization, and parallel website implementation. Implementation is now in this workspace; see [README.md](README.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current setup and remaining acceptance work. The owner explicitly deferred deployment and functional testing until their return. Historical setup records below describe the state at the time of each action.
+Planning date: 6 October 2026. This document records the agreed design. The owner subsequently authorized bot verification, map repository initialization, and parallel website implementation. Implementation is now in this workspace; see [README.md](README.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current setup and remaining acceptance work. Historical setup records below describe the state at the time of each action.
+
+Current owner decisions: passwords have an eight-character minimum; comprehensive local testing against the test repository will replace the separate staging acceptance run. Follow the current testing decision and focused checklist in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md#current-testing-decision--6-october-2026), then perform a brief deployment check for Vercel-specific behavior. Earlier password and staging requirements below are historical.
 
 Build a website where players can view the approved metro map and submit requests or comments without learning GitHub. Approved collaborators use website accounts to upload a replacement map and open a pull request. An administrator reviews and merges that pull request in GitHub. GitHub retains the authoritative map history and discussion history.
 

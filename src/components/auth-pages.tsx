@@ -4,6 +4,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from "@/lib/password-policy";
+import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -109,7 +113,7 @@ export function LoginPage() {
                 type="password"
                 autoComplete="current-password"
                 required
-                maxLength={128}
+                maxLength={MAX_PASSWORD_LENGTH}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -229,8 +233,8 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
                 <input
                   type="password"
                   autoComplete="new-password"
-                  minLength={12}
-                  maxLength={128}
+                  minLength={MIN_PASSWORD_LENGTH}
+                  maxLength={MAX_PASSWORD_LENGTH}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -240,8 +244,8 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
                 <input
                   type="password"
                   autoComplete="new-password"
-                  minLength={12}
-                  maxLength={128}
+                  minLength={MIN_PASSWORD_LENGTH}
+                  maxLength={MAX_PASSWORD_LENGTH}
                   required
                   value={confirmation}
                   onChange={(e) => setConfirmation(e.target.value)}

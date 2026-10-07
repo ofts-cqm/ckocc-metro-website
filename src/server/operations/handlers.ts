@@ -13,7 +13,11 @@ import {
 } from "@/lib/schemas";
 import type { PublishedMap, UpdateSummary } from "@/lib/contracts";
 import { readJson, json, errorResponse } from "@/server/http";
-import { requireUser, requireAdmin } from "@/server/auth/authorize";
+import {
+  requireUser,
+  requireAdmin,
+  optionalUser,
+} from "@/server/auth/authorize";
 import {
   enforceSameOrigin,
   requireAnonymousWrite,
@@ -30,6 +34,7 @@ import {
 import { requestTemplate, commentTemplate } from "@/server/github/templates";
 import {
   repositoryConfig,
+  githubConfigured,
   readFileAt,
   MAP_PATHS,
 } from "@/server/github/client";
@@ -52,6 +57,7 @@ import {
   handleStagingUpload,
   cleanupStaging,
   readStaged,
+  publicationStorageConfigured,
   type UploadRecord,
 } from "@/server/storage/staging";
 import type { HandleUploadBody } from "@vercel/blob/client";
@@ -64,7 +70,7 @@ import {
   type Operation,
 } from "./store";
 import { launchOperation, repairOutbox } from "./outbox";
-import { PipelineError } from "./errors";
+import { PipelineError, safeErrorCode } from "./errors";
 import type { UpdateInput } from "./update";
 
 export const route =
@@ -119,30 +125,56 @@ async function queueReadReconciliation() {
     kind: "sync",
     scope: "read:sync",
     key: new Date().toISOString().slice(0, 16),
-    payload: { publication: true },
+    // Pull-request status can be refreshed while image publication is still being configured.
+    payload: { publication: publicationStorageConfigured() },
     authorize: async () => undefined,
   });
   await launchOperation(operation.id);
 }
 
-export const getMap = route(async () => {
-  if (!process.env.DATABASE_URL) {
-    // The immutable administrator-approved starter map is useful before backend setup.
+function scheduleReadReconciliation() {
+  if (!process.env.DATABASE_URL || !githubConfigured()) return;
+  // Serving saved data must not depend on a workflow launch succeeding.
+  after(async () => {
     try {
-      const bootstrap = JSON.parse(
-        await readFile(
-          path.join(process.cwd(), "public/maps/bootstrap.json"),
-          "utf8",
-        ),
-      ) as PublishedMap;
-      return json({ map: bootstrap, source: "bootstrap" });
-    } catch {
-      return json({ map: null });
+      await queueReadReconciliation();
+    } catch (error) {
+      console.error("Read reconciliation could not be scheduled", {
+        code: safeErrorCode(error),
+      });
     }
+  });
+}
+
+async function bootstrapMapResponse() {
+  try {
+    const bootstrap = JSON.parse(
+      await readFile(
+        path.join(process.cwd(), "public/maps/bootstrap.json"),
+        "utf8",
+      ),
+    ) as PublishedMap;
+    return json({ map: bootstrap, source: "bootstrap" });
+  } catch {
+    return json({ map: null });
   }
-  const map = await publishedMap();
-  await queueReadReconciliation();
-  return json({ map });
+}
+
+export const getMap = route(async () => {
+  if (!process.env.DATABASE_URL) return bootstrapMapResponse();
+  let map: PublishedMap | null = null;
+  try {
+    map = await publishedMap();
+  } catch (error) {
+    if (
+      !(error instanceof PipelineError) ||
+      error.code !== "service_not_configured"
+    )
+      throw error;
+  }
+  scheduleReadReconciliation();
+  // Database setup alone does not replace the approved starter map with an empty publication.
+  return map ? json({ map }) : bootstrapMapResponse();
 });
 
 export const getIssues = route(async (request) => {
@@ -180,11 +212,16 @@ async function publicInput(request: Request) {
 }
 export const postRequest = route(async (request) => {
   const input = await publicInput(request);
-  const payload = requestSchema.parse(input.payload);
+  const user = await optionalUser(request);
+  // Bind the name before validation and digesting, including for tampered or restored drafts.
+  const payload = requestSchema.parse(
+    user ? { ...input.payload, gameName: user.name } : input.payload,
+  );
   requestTemplate(payload, "00000000-0000-0000-0000-000000000000");
   const operation = await acceptOperation({
     kind: "request",
-    scope: "public:request",
+    scope: user ? `user:${user.id}:request` : "public:request",
+    actorId: user?.id,
     key: input.key,
     receiptToken: input.receiptToken,
     payload,
@@ -201,6 +238,29 @@ export const postRequest = route(async (request) => {
     { operation: operationView(operation), receiptToken: input.receiptToken },
     202,
   );
+});
+export const postCloseIssue = route(async (request, context) => {
+  enforceSameOrigin(request);
+  const user = await requireUser(request);
+  const number = await issueNumber(context);
+  z.object({})
+    .strict()
+    .parse(await readJson(request, 1024));
+  const operation = await acceptOperation({
+    kind: "close-issue",
+    scope: `user:${user.id}:close-issue:${number}`,
+    key: key(request),
+    actorId: user.id,
+    payload: { issueNumber: number },
+    authorize: async () => {
+      await enforceRateLimits([
+        { key: `close-issue:${user.id}`, max: 60, seconds: 3600 },
+      ]);
+      await assertEligibleIssue(number);
+    },
+  });
+  await launchOperation(operation.id);
+  return json({ operation: operationView(operation) }, 202);
 });
 export const postComment = route(async (request, context) => {
   const number = await issueNumber(context);
@@ -421,7 +481,6 @@ export const postUpdate = route(async (request) => {
 });
 export const getUpdates = route(async (request) => {
   const user = await requireUser(request);
-  await queueReadReconciliation();
   const result = await query<Operation>(
     `SELECT * FROM metro_operations WHERE kind='update' AND ($1::boolean OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`,
     [user.role === "admin", user.id],
@@ -456,6 +515,7 @@ export const getUpdates = route(async (request) => {
     prNumber: op.result.prNumber ?? null,
     prUrl: op.result.prUrl ?? null,
   }));
+  scheduleReadReconciliation();
   return json({ updates, pendingOthers });
 });
 

@@ -1,7 +1,10 @@
 import { hash, verify, type Options } from "@node-rs/argon2";
+import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from "../../lib/password-policy";
 
-export const MIN_PASSWORD_LENGTH = 12;
-export const MAX_PASSWORD_LENGTH = 128;
+export { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH };
 // @node-rs/argon2 declares Algorithm as an ambient const enum. The documented numeric value
 // avoids emitting an enum reference, which is incompatible with Next.js isolatedModules.
 const options = {
@@ -23,7 +26,9 @@ export function validPassword(password: unknown): password is string {
 /** The native library generates a cryptographically random salt for every hash. */
 export function hashPassword(password: string): Promise<string> {
   if (!validPassword(password))
-    throw new Error("Password must contain 12 to 128 characters.");
+    throw new Error(
+      `Password must contain ${MIN_PASSWORD_LENGTH} to ${MAX_PASSWORD_LENGTH} characters.`,
+    );
   return hash(password, options);
 }
 

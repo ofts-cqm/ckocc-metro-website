@@ -207,7 +207,10 @@ export function RequestBoard() {
 export function HomePage() {
   const m = useMessages();
   const locale = useLocale();
-  const result = useApi<{ map: PublishedMap | null }>("/api/map");
+  const result = useApi<{
+    map: PublishedMap | null;
+    source?: "bootstrap";
+  }>("/api/map");
   const [bootstrap, setBootstrap] = useState<PublishedMap | null>(null);
   useEffect(() => {
     let alive = true;
@@ -222,7 +225,10 @@ export function HomePage() {
     };
   }, []);
   const map = result.data?.map ?? (result.error ? bootstrap : null);
-  const snapshot = Boolean(!result.data?.map && result.error && bootstrap);
+  const snapshot = Boolean(
+    result.data?.source === "bootstrap" ||
+    (!result.data?.map && result.error && bootstrap),
+  );
   return (
     <div className="container home-page">
       <section className="hero">

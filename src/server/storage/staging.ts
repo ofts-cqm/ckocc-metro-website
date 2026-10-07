@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { get, head, del, put } from "@vercel/blob";
+import { get, head, del, put, BlobNotFoundError } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import type { SessionUser } from "@/lib/contracts";
 import { query, transaction } from "@/server/db";
@@ -187,13 +187,18 @@ export async function cleanupStaging() {
   return deleted;
 }
 
+export function publicationStorageConfigured(): boolean {
+  const token = process.env.PUBLISHED_BLOB_READ_WRITE_TOKEN?.trim();
+  return Boolean(token && token !== process.env.BLOB_READ_WRITE_TOKEN?.trim());
+}
+
 export async function publishImage(
   revision: string,
   png: Buffer,
   overview: Buffer,
 ) {
   const token = process.env.PUBLISHED_BLOB_READ_WRITE_TOKEN;
-  if (!token || token === process.env.BLOB_READ_WRITE_TOKEN)
+  if (!token || !publicationStorageConfigured())
     throw new PipelineError("storage_not_configured", 503);
   const prefix = `maps/${revision.replace("sha256:", "")}`;
   async function immutable(path: string, data: Buffer) {
@@ -201,8 +206,8 @@ export async function publishImage(
     try {
       return await head(path, { token });
     } catch (error) {
-      if (!(error instanceof Error) || error.name !== "BlobNotFoundError")
-        throw error;
+      // The SDK's BlobNotFoundError inherits name="Error"; use its exported class.
+      if (!(error instanceof BlobNotFoundError)) throw error;
       return put(path, data, {
         token,
         access: "public",
