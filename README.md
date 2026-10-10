@@ -2,7 +2,7 @@
 
 A metro map and request portal for the Minecraft server, built with Next.js, PostgreSQL, Better Auth, GitHub App installation authentication, Vercel Blob, and Vercel Workflow.
 
-Players submit requests and comments without an account. Invited collaborators upload a Rail Map Painter JSON/PNG pair and submit a PR. An administrator reviews and merges in GitHub. The website publishes approved map revisions.
+Players submit requests and comments without an account. Invited collaborators upload a Rail Map Painter JSON/PNG pair and submit a PR. An administrator reviews and merges from the Updates page or GitHub. The website publishes approved map revisions.
 
 Signed-in collaborators and administrators can close public requests from the request page. Their account's in-game display name is automatically attached to general and line-update requests and cannot be changed in the form or overridden through the submission API.
 
@@ -101,9 +101,9 @@ Map data lives separately in [ofts-cqm/ckocc-metro-map](https://github.com/ofts-
 git clone https://github.com/ofts-cqm/ckocc-metro-map.git map-data
 ```
 
-Its authoritative paths are `maps/network.json`, `maps/network.png`, and `maps/manifest.json`. The website updates those three paths in one commit. It never calls a merge API. The public repository independently exposes its JSON even though the website's source-download endpoint requires a collaborator session.
+Its authoritative paths are `maps/network.json`, `maps/network.png`, and `maps/manifest.json`. The website updates those three paths in one commit. Administrators can merge website-created map PRs through the GitHub merge API after review and validation. The public repository independently exposes its JSON even though the website's source-download endpoint requires a collaborator session.
 
-[Data-repository validation templates](data-repository-template/README.md) are prepared for later administrator installation. They have not been pushed. Required checks and repository rules must be configured before accepting production map updates. The runtime bot needs only Contents, Issues, and Pull requests write access, plus Metadata read; do not give it merge bypass rights, Workflows, or Administration permissions.
+[Data-repository validation templates](data-repository-template/README.md) are prepared for later administrator installation. They have not been pushed. Required checks and repository rules must be configured before accepting production map updates. The runtime bot needs only Contents, Issues, and Pull requests write access, plus Metadata and Checks read; do not give it merge bypass rights, Workflows, or Administration permissions.
 
 Enable the GitHub App webhook at `/api/webhooks/github` after deployment, with Push, Pull request, Issues, and Issue comment events and the matching secret. The receiver validates signatures and source; durable tasks reconcile current default-branch state, retaining the previous publication on failure.
 
@@ -120,3 +120,31 @@ Enable the GitHub App webhook at `/api/webhooks/github` after deployment, with P
 | `public/maps` | Approved bootstrap metadata and a derived display overview. |
 
 Keep environment files and private keys out of commits, screenshots, logs, and issue descriptions. Database backups must include account/workflow state; GitHub alone cannot restore website accounts.
+
+## Administrator merge and rollback controls
+
+On the Updates page, administrators can select **Merge PR**, review the map version, and confirm the merge. The review includes a live `validate-map` status widget, automatic refresh every 15 seconds while visible, and manual refresh. A failed refresh clears merge readiness. The server checks fresh administrator authentication (15 minutes), pins the approved PR head, validates its map files, and requires a successful GitHub Actions `validate-map` check. Drafts, conflicts, changed PR identities, stale map bases, and blocked repository rules cannot be merged. Failed or unknown operations remain visible in the existing administrator operation controls; retries reconcile GitHub before repeating uncertain writes.
+
+**Create rollback PR** restores the complete JSON/PNG pair from before a selected website-created merge. The confirmation warns that merging it removes later map changes. A fresh manifest records the current default-branch base and the acting administrator. The new PR must pass the same merge checks. Resolved requests remain closed. Historical publication records stay historical; only the operation in the current publication manifest is labeled as the currently published map. Administrators see their own submissions under **My updates** and other creators' submissions under **Updates from others**, with submitter names and independent pagination of 10 per section. Updates start collapsed; expand a summary to see map versions, GitHub check status, and administrator controls. Merge and rollback controls are available in both sections.
+
+Merge and rollback use the existing operations, outbox, and audit tables; no database migration is required. New routes are administrator-only `GET /api/admin/updates/[id]` for review and `POST /api/admin/updates/[id]/merge` or `/rollback`. POST requests require `Idempotency-Key`; both pin `baseCommit`, and merge additionally pins `headSha`. Responses return the existing operation receipt with HTTP 202. IDs refer to website operations, never arbitrary repository or PR identifiers.
+
+### Enabling website merges
+
+`WEBSITE_MERGES_ENABLED` defaults to disabled. Before setting it to `true`:
+
+1. Install the reviewed validation workflow and scripts from `data-repository-template` with an administrator identity. Pin the checkout action to a verified release commit.
+2. Require `validate-map` from GitHub Actions on the default branch and require branches to be up to date. The bot must not bypass these validation rules. Strict freshness is essential because GitHub's merge API pins the PR head but does not accept an expected default-branch SHA.
+3. Permit the application to merge through PRs, enable merge commits, and remove any requirement for a separate GitHub review if website confirmation is to supply approval. Keep force pushes disabled. Keep Workflows and Administration permissions away from the application; add Checks read to its existing permissions.
+4. Exercise two competing map PRs in the dedicated test repository: after one merges, the other must be rejected as stale. Exercise a historical rollback PR, duplicate confirmations, and publication recovery before enabling production.
+
+Live acceptance on 2026-10-10 verified the installed workflow and active rulesets in `ofts-cqm/ckocc-metro-map-test`, using the website's GitHub App credentials, real operation workers, local PostgreSQL, and Blob storage:
+
+- [PR #10](https://github.com/ofts-cqm/ckocc-metro-map-test/pull/10) passed `validate-map`, merged, and published. [Competing PR #11](https://github.com/ofts-cqm/ckocc-metro-map-test/pull/11) then failed with `stale_base_revision`; GitHub also rejected its merge with HTTP 405.
+- [Invalid PR #12](https://github.com/ofts-cqm/ckocc-metro-map-test/pull/12) failed validation with `Expected an RMP v80 document`; GitHub rejected its merge with HTTP 405.
+- [Rollback PR #13](https://github.com/ofts-cqm/ckocc-metro-map-test/pull/13) passed validation and restored the original JSON/PNG bytes and published revision. A simulated publication failure preserved the successful merge record; retry restored publication without another merge commit.
+- Repeated merge and rollback confirmations with different idempotency keys returned the same respective operations.
+
+The test exposed a GitHub ruleset compatibility issue: `mergeable_state` can remain `blocked` under restrict-updates rules even when the app may merge through PRs. Readiness now permits that state after checking the candidate and trusted validation result; GitHub's merge endpoint enforces branch rules and caller permissions. Nineteen focused server tests and typechecking passed after this fix.
+
+These were worker-level live tests; hosted browser authentication and Vercel Workflow dispatch were not exercised. `WEBSITE_MERGES_ENABLED=true` was set only inside the test process. No production data or branch protections were changed. Pinning the checkout action to a verified release commit remains a setup step before production use.

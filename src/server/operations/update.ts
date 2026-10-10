@@ -13,6 +13,8 @@ import { validatePair, type MapManifest } from "@/server/maps/validate";
 import { uploadRecord, readStaged } from "@/server/storage/staging";
 import { checkpoint, type Operation } from "./store";
 import { PipelineError, statusOf } from "./errors";
+import { readValidatedMap, requireOperationAdmin } from "./map-actions";
+import { resolveMapBase } from "@/server/maps/sessions";
 
 export interface UpdateInput extends Record<string, unknown> {
   editSessionId: string;
@@ -27,7 +29,10 @@ export interface UpdateInput extends Record<string, unknown> {
 
 export async function processUpdate(op: Operation, leaseToken: string) {
   if (!op.actor_id) throw new PipelineError("unauthorized", 401);
-  const user = await getActiveUser(op.actor_id);
+  const user =
+    op.kind === "rollback"
+      ? await requireOperationAdmin(op)
+      : await getActiveUser(op.actor_id);
   if (!user) throw new PipelineError("unauthorized", 401);
   const input = op.payload as UpdateInput;
   const client = await github();
@@ -62,22 +67,33 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   if (op.checkpoint.prIntent) throw new PipelineError("outcome_unknown", 409);
   await checkpoint(op.id, leaseToken, {}, "validating");
   await assertFresh(input.baseMapRevision);
-  const uploads = await Promise.all([
-    uploadRecord(input.jsonUploadId),
-    uploadRecord(input.pngUploadId),
-  ]);
-  if (
-    uploads.some(
-      (u) =>
-        u.owner_id !== op.actor_id ||
-        u.edit_session_id !== input.editSessionId ||
-        u.status !== "ready",
-    ) ||
-    uploads[0].kind !== "json" ||
-    uploads[1].kind !== "png"
-  )
-    throw new PipelineError("invalid_upload");
-  const [json, png] = await Promise.all(uploads.map(readStaged));
+  let json: Buffer, png: Buffer;
+  if (op.kind === "rollback") {
+    const approved = await resolveMapBase(String(op.payload.restoreCommit));
+    const restored = await readValidatedMap(approved.commit);
+    if (restored.manifest.map_revision !== op.payload.restoreRevision)
+      throw new PipelineError("historical_map_mismatch", 409);
+    ({ json, png } = restored);
+    if (input.issueNumbers.length)
+      throw new PipelineError("invalid_rollback", 409);
+  } else {
+    const uploads = await Promise.all([
+      uploadRecord(input.jsonUploadId),
+      uploadRecord(input.pngUploadId),
+    ]);
+    if (
+      uploads.some(
+        (u) =>
+          u.owner_id !== op.actor_id ||
+          u.edit_session_id !== input.editSessionId ||
+          u.status !== "ready",
+      ) ||
+      uploads[0].kind !== "json" ||
+      uploads[1].kind !== "png"
+    )
+      throw new PipelineError("invalid_upload");
+    [json, png] = await Promise.all(uploads.map(readStaged));
+  }
   const validation = await validatePair(json, png);
   if (validation.revision === input.baseMapRevision)
     throw new PipelineError("unchanged_map", 409);
@@ -126,6 +142,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   );
   let commitSha = op.checkpoint.commitSha as string | undefined;
   if (!commitSha) {
+    if (op.kind === "rollback") await requireOperationAdmin(op);
     const blobs = await Promise.all([
       client.rest.git.createBlob({
         owner,
@@ -182,6 +199,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
     await checkpoint(op.id, leaseToken, { commitSha });
   }
   await assertFresh(input.baseMapRevision);
+  if (op.kind === "rollback") await requireOperationAdmin(op);
   if (!(await getActiveUser(op.actor_id)))
     throw new PipelineError("unauthorized", 401);
   await checkpoint(op.id, leaseToken, { branchIntent: true });
@@ -204,6 +222,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   }
   // Check again immediately before the only PR-creation attempt.
   await assertFresh(input.baseMapRevision);
+  if (op.kind === "rollback") await requireOperationAdmin(op);
   await checkpoint(op.id, leaseToken, { prIntent: true, branch: head });
   const pr = await client.rest.pulls.create({
     owner,
@@ -221,8 +240,10 @@ export async function processUpdate(op: Operation, leaseToken: string) {
     mapRevision: validation.revision,
   };
   await checkpoint(op.id, leaseToken, { prResult: result });
-  await query("UPDATE metro_edit_sessions SET status='submitted' WHERE id=$1", [
-    input.editSessionId,
-  ]);
+  if (op.kind === "update")
+    await query(
+      "UPDATE metro_edit_sessions SET status='submitted' WHERE id=$1",
+      [input.editSessionId],
+    );
   return result;
 }

@@ -7,7 +7,14 @@ import { repositoryConfig } from "@/server/github/client";
 
 export interface Operation {
   id: string;
-  kind: "request" | "comment" | "close-issue" | "update" | "sync";
+  kind:
+    | "request"
+    | "comment"
+    | "close-issue"
+    | "update"
+    | "rollback"
+    | "merge"
+    | "sync";
   scope: string;
   idempotency_key: string;
   request_digest: string;
@@ -79,6 +86,32 @@ export async function acceptOperation(input: {
     if (existing.rows[0]) {
       return checkExisting(existing.rows[0]);
     }
+    if (input.kind === "rollback" || input.kind === "merge") {
+      // Serialize different browser keys and different administrators too.
+      const target =
+        input.kind === "rollback"
+          ? input.payload.baseCommit
+          : input.payload.headSha;
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `${repository.key}:${input.kind}:${input.payload.updateId}:${target}`,
+      ]);
+      const duplicate = await client.query<Operation>(
+        `SELECT * FROM metro_operations WHERE kind=$1 AND payload->>'updateId'=$2
+         AND payload->>($3::text)=$4 AND checkpoint->>'repository'=$5
+         AND status NOT IN ('needs_reconciliation','closed_unmerged')
+         AND (status<>'failed' OR checkpoint->>'prIntent'='true' OR checkpoint ? 'prResult'
+              OR checkpoint->>'mergeIntent'='true' OR checkpoint ? 'mergeResult')
+         ORDER BY created_at DESC LIMIT 1`,
+        [
+          input.kind,
+          input.payload.updateId,
+          input.kind === "rollback" ? "baseCommit" : "headSha",
+          target,
+          repository.key,
+        ],
+      );
+      if (duplicate.rows[0]) return duplicate.rows[0];
+    }
     if (input.kind === "update") {
       const session = await client.query<{ status: string; owner_id: string }>(
         "SELECT status,owner_id FROM metro_edit_sessions WHERE id=$1 AND expires_at>now() FOR UPDATE",
@@ -131,6 +164,11 @@ export async function acceptOperation(input: {
     await client.query("INSERT INTO metro_outbox(operation_id) VALUES($1)", [
       result.rows[0].id,
     ]);
+    if (input.kind === "merge" || input.kind === "rollback")
+      await client.query(
+        "INSERT INTO metro_pipeline_audit(actor_id,action,operation_id) VALUES($1,$2,$3)",
+        [input.actorId, input.kind, result.rows[0].id],
+      );
     if (input.kind === "update")
       await client.query(
         "UPDATE metro_edit_sessions SET status='submitted' WHERE id=$1",

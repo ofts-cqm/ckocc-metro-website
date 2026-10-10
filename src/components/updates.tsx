@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   Check,
+  ChevronDown,
   FileJson,
   GitPullRequest,
   ImageIcon,
@@ -20,6 +21,8 @@ import type {
   UpdateSummary,
   UploadAsset,
 } from "@/lib/contracts";
+import { UPDATE_HISTORY_PAGE_SIZE } from "@/lib/contracts";
+import { MapActions } from "./map-actions";
 import { updateSchema } from "@/lib/schemas";
 import {
   api,
@@ -82,7 +85,6 @@ export function UpdatesPage() {
 }
 function UpdatesWorkspace() {
   const m = useMessages();
-  const locale = useLocale();
   const { user } = useAuth();
   const [draft, setDraft, clearDraft, ready] = useDraft<UpdateDraft>(
     `update-${user?.id}-v1`,
@@ -98,10 +100,19 @@ function UpdatesWorkspace() {
   const [percent, setPercent] = useState(0);
   const [previewError, setPreviewError] = useState(false);
   const [issuePage, setIssuePage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [othersPage, setOthersPage] = useState(1);
   const history = useApi<{
     updates: UpdateSummary[];
     pendingOthers?: UpdateSummary[];
-  }>("/api/updates");
+    otherUpdates?: UpdateSummary[];
+    othersHasMore?: boolean;
+    hasMore?: boolean;
+  }>(
+    historyPage === 1 && othersPage === 1
+      ? "/api/updates"
+      : `/api/updates?page=${historyPage}&othersPage=${othersPage}`,
+  );
   const issues = useApi<{ issues: IssueSummary[]; hasMore: boolean }>(
     draft.session ? `/api/issues?state=open&page=${issuePage}` : null,
   );
@@ -663,53 +674,157 @@ function UpdatesWorkspace() {
           </fieldset>
         </form>
       )}
-      <section className="update-history">
-        <div className="section-heading compact">
-          <h2>{m.updateHistory}</h2>
-        </div>
-        {history.loading ? (
-          <Loading />
-        ) : history.error ? (
-          <ErrorNotice error={history.error} />
-        ) : history.data?.updates.length ? (
-          <div className="history-list">
-            {history.data.updates.map((value) => (
-              <article className="history-item" key={value.id}>
-                <span className="history-icon">
-                  <GitPullRequest size={20} />
-                </span>
-                <div>
-                  <h3>{value.summary}</h3>
-                  <p>{formatDate(value.createdAt, locale)}</p>
-                  <p>{m.submittedMapSha}</p>
-                  {value.mapRevision ? (
-                    <code className="full-hash">{value.mapRevision}</code>
-                  ) : (
-                    <p className="field-hint">{m.mapShaPending}</p>
-                  )}
-                  <p>{m.startVersion}</p>
-                  <code className="full-hash">{value.baseMapRevision}</code>
-                  {value.errorCode && <ErrorNotice error={value.errorCode} />}
-                </div>
-                <div className="history-right">
-                  <StatusBadge status={value.status} />
-                  {value.prUrl && (
-                    <ExternalAnchor href={value.prUrl}>
-                      {value.prNumber ? `#${value.prNumber}` : m.github}
-                    </ExternalAnchor>
-                  )}
-                </div>
-              </article>
-            ))}
+      {[
+        {
+          title: m.updateHistory,
+          updates: history.data?.updates,
+          page: historyPage,
+          setPage: setHistoryPage,
+          hasMore: history.data?.hasMore,
+          other: false,
+        },
+        ...(user?.role === "admin"
+          ? [
+              {
+                title: m.otherUpdates,
+                updates: history.data?.otherUpdates,
+                page: othersPage,
+                setPage: setOthersPage,
+                hasMore: history.data?.othersHasMore,
+                other: true,
+              },
+            ]
+          : []),
+      ].map((group) => (
+        <section
+          className="update-history"
+          key={group.title}
+          aria-label={group.title}
+        >
+          <div className="section-heading compact">
+            <h2>{group.title}</h2>
           </div>
-        ) : (
-          <EmptyState
-            icon={<GitPullRequest size={25} />}
-            title={m.noUpdates}
-            description={m.noUpdatesBody}
-          />
-        )}
-      </section>
+          {history.loading ? (
+            <Loading />
+          ) : history.error ? (
+            <ErrorNotice error={history.error} />
+          ) : group.updates?.length ? (
+            <div className="history-list">
+              {group.updates.map((value) => (
+                <UpdateHistoryItem
+                  key={value.id}
+                  update={value}
+                  other={group.other}
+                  onSuccess={() => {
+                    history.refresh();
+                    currentMap.refresh();
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<GitPullRequest size={25} />}
+              title={group.other ? m.noOtherUpdates : m.noUpdates}
+              description={m.noUpdatesBody}
+            />
+          )}
+          {(group.page > 1 || Boolean(group.updates?.length)) && (
+            <div className="pagination">
+              <button
+                className="button button-secondary"
+                disabled={group.page === 1 || history.loading}
+                onClick={() => group.setPage((p) => p - 1)}
+              >
+                {m.previous}
+              </button>
+              <span>
+                {m.page} {group.page} · {UPDATE_HISTORY_PAGE_SIZE} {m.perPage}
+              </span>
+              <button
+                className="button button-secondary"
+                disabled={!group.hasMore || history.loading}
+                onClick={() => group.setPage((p) => p + 1)}
+              >
+                {m.next}
+              </button>
+            </div>
+          )}
+        </section>
+      ))}
     </>
+  );
+}
+
+function UpdateHistoryItem({
+  update: value,
+  other,
+  onSuccess,
+}: {
+  update: UpdateSummary;
+  other: boolean;
+  onSuccess: () => void;
+}) {
+  const m = useMessages();
+  const locale = useLocale();
+  const { user } = useAuth();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <details
+      className="history-item update-accordion"
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary className="update-accordion-summary">
+        <span className="history-icon">
+          <GitPullRequest size={20} />
+        </span>
+        <div className="update-summary-text">
+          <h3>{value.summary}</h3>
+          <p>
+            {formatDate(value.createdAt, locale)}
+            {value.prNumber ? ` · #${value.prNumber}` : ""}
+          </p>
+          {other && (
+            <p>
+              {m.submittedBy}: {value.authorName || m.unknownAuthor}
+            </p>
+          )}
+          {value.isCurrentPublication && (
+            <p className="update-current">{m.currentPublishedMap}</p>
+          )}
+          {value.rollbackOf && <p>{m.rollbackUpdate}</p>}
+        </div>
+        <span className="update-summary-status">
+          <StatusBadge status={value.status} />
+        </span>
+        <ChevronDown className="update-chevron" size={18} aria-hidden="true" />
+      </summary>
+      <div className="update-accordion-body">
+        <p>{m.submittedMapSha}</p>
+        {value.mapRevision ? (
+          <code className="full-hash">{value.mapRevision}</code>
+        ) : (
+          <p className="field-hint">{m.mapShaPending}</p>
+        )}
+        <p>{m.startVersion}</p>
+        <code className="full-hash">{value.baseMapRevision}</code>
+        {value.prUrl && (
+          <ExternalAnchor href={value.prUrl}>
+            {value.prNumber ? `#${value.prNumber}` : m.github}
+          </ExternalAnchor>
+        )}
+        {value.errorCode && <ErrorNotice error={value.errorCode} />}
+        {user?.role === "admin" &&
+          value.prNumber &&
+          ["awaiting_review", "merged", "published"].includes(value.status) && (
+            <MapActions
+              key={`${value.id}:${value.status}`}
+              update={value}
+              active={expanded}
+              onSuccess={onSuccess}
+            />
+          )}
+      </div>
+    </details>
   );
 }

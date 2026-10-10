@@ -112,7 +112,42 @@ export type OperationView = {
   errorCode?: string | null;
   retryAt?: string | null;
 };
+export type MapCheckState =
+  | "pending"
+  | "running"
+  | "success"
+  | "failure"
+  | "cancelled"
+  | "skipped"
+  | "unavailable";
+export type MapValidationCheck = {
+  state: MapCheckState;
+  checkedAt: string;
+  runs: {
+    id: number;
+    state: MapCheckState;
+    title: string | null;
+    url: string | null;
+  }[];
+};
+export type MapUpdateReview = {
+  validation: MapValidationCheck;
+  headSha: string;
+  baseCommit: string;
+  currentRevision: string;
+  mapRevision: string;
+  restoreRevision: string;
+  prNumber: number;
+  prUrl: string;
+  merged: boolean;
+  canMerge: boolean;
+  canRollback: boolean;
+  blockedReason: string | null;
+};
 export type UpdateSummary = {
+  authorName?: string | null;
+  isCurrentPublication?: boolean;
+  rollbackOf?: string | null;
   id: string;
   status: OperationStatus;
   summary: string;
@@ -133,3 +168,5 @@ export type SessionUser = {
 export type ApiErrorBody = {
   error: { code: string; message: string; fields?: Record<string, string[]> };
 };
+
+export const UPDATE_HISTORY_PAGE_SIZE = 10;

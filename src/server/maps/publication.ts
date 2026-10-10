@@ -19,7 +19,7 @@ type Publication = {
   published_at: Date;
   width: number;
   height: number;
-  manifest: { summary: string };
+  manifest: { summary: string; operation_id?: string };
 };
 export async function publishedMap(): Promise<PublishedMap | null> {
   const result = await query<Publication>(
@@ -63,8 +63,8 @@ export async function synchronizePublication() {
     if (previous.rows[0]?.commit_sha === commit) {
       await lock.query(
         `UPDATE metro_operations SET status='published',result=result||jsonb_build_object('publishedAt',now(),'publicationPending',false),updated_at=now()
-        WHERE kind='update' AND checkpoint->>'mapRevision'=$1 AND status='merged'`,
-        [manifest.map_revision],
+        WHERE kind IN ('update','rollback') AND id::text=$2 AND checkpoint->>'mapRevision'=$1 AND status='merged'`,
+        [manifest.map_revision, manifest.operation_id],
       );
       await lock.query("COMMIT");
       return { revision: manifest.map_revision, commitSha: commit };
@@ -97,8 +97,8 @@ export async function synchronizePublication() {
     );
     await lock.query(
       `UPDATE metro_operations SET status='published',result=result||jsonb_build_object('publishedAt',now(),'publicationPending',false),updated_at=now()
-      WHERE kind='update' AND checkpoint->>'mapRevision'=$1 AND status='merged'`,
-      [pair.revision],
+      WHERE kind IN ('update','rollback') AND id::text=$2 AND checkpoint->>'mapRevision'=$1 AND status='merged'`,
+      [pair.revision, manifest.operation_id],
     );
     await lock.query("COMMIT");
     return { revision: pair.revision, commitSha: commit };
@@ -118,7 +118,7 @@ export async function synchronizePullRequests() {
     result: { prNumber: number };
     status: string;
   }>(`SELECT id,result,status FROM metro_operations
-    WHERE kind='update' AND status IN ('awaiting_review','merged') AND result ? 'prNumber' ORDER BY updated_at LIMIT 50`);
+    WHERE kind IN ('update','rollback') AND status IN ('awaiting_review','merged') AND result ? 'prNumber' ORDER BY updated_at LIMIT 50`);
   for (const op of ops.rows) {
     const pr = (
       await client.rest.pulls.get({
@@ -137,6 +137,7 @@ export async function synchronizePullRequests() {
           JSON.stringify({
             mergedAt: pr.merged_at,
             publicationPending: !!pr.merged,
+            mergeCommitSha: pr.merge_commit_sha,
           }),
         ],
       );

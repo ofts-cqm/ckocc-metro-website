@@ -97,6 +97,12 @@ export function errorKey(error: unknown): MessageKey {
         ? error
         : ""
   ).toUpperCase();
+  if (/MERGE_NOT_CONFIGURED/.test(code)) return "mergeNotConfigured";
+  if (/MERGE_BLOCKED|PR_DRAFT|PR_NOT_MERGED/.test(code)) return "mergeBlocked";
+  if (/MAP_CHECKS_PENDING/.test(code)) return "mapChecksPending";
+  if (/PR_IDENTITY_CHANGED/.test(code)) return "prIdentityChanged";
+  if (/UNCHANGED_MAP/.test(code)) return "unchangedMap";
+  if (/HISTORICAL_MAP_MISMATCH/.test(code)) return "historicalMapMismatch";
   if (/INVALID_BASE_FORMAT/.test(code)) return "baseFormatError";
   if (/BASE_REVISION_NOT_FOUND/.test(code)) return "baseNotFound";
   if (/UNAPPROVED_BASE_REVISION/.test(code)) return "baseUnapproved";
@@ -684,6 +690,11 @@ export function OperationProgress({
         </strong>
         <StatusBadge status={status} />
       </div>
+      {operation?.kind === "merge" &&
+      operation.result?.mergeCommitSha &&
+      operation.result?.publicationPending === true ? (
+        <Notice>{m.mergePublicationPending}</Notice>
+      ) : null}
       {operation?.errorCode && <ErrorNotice error={operation.errorCode} />}
       <ErrorNotice error={error} />
       {(error || needsAttention) && (
