@@ -13,6 +13,7 @@ import {
 import { processDiscussion } from "./discussion";
 import { processCloseIssue } from "./close-issue";
 import { processUpdate } from "./update";
+import { processMerge, requireOperationAdmin } from "./map-actions";
 import {
   synchronizePublication,
   synchronizePullRequests,
@@ -40,6 +41,8 @@ export async function executeOperation(
       if (op.kind === "sync" && actor.role !== "admin")
         throw new PipelineError("forbidden", 403);
     }
+    if (op.kind === "merge" || op.kind === "rollback")
+      await requireOperationAdmin(op);
     if (op.kind === "close-issue" && !op.actor_id)
       throw new PipelineError("unauthorized", 401);
     if (op.kind === "request" || op.kind === "comment") {
@@ -48,7 +51,16 @@ export async function executeOperation(
     } else if (op.kind === "close-issue") {
       const result = await processCloseIssue(op, token);
       await finishOperation(id, token, "succeeded", result);
-    } else if (op.kind === "update") {
+    } else if (op.kind === "merge") {
+      const result = await processMerge(op, token);
+      await invalidateIssues();
+      await synchronizePullRequests();
+      await synchronizePublication();
+      await finishOperation(id, token, "succeeded", {
+        ...result,
+        publicationPending: false,
+      });
+    } else if (op.kind === "update" || op.kind === "rollback") {
       const result = await processUpdate(op, token);
       await finishOperation(id, token, "awaiting_review", result);
     } else {
@@ -71,22 +83,39 @@ export async function executeOperation(
       fresh.checkpoint.writeIntent &&
       !fresh.checkpoint.discussionResult;
     const hasPrIntent =
-      op.kind === "update" &&
+      (op.kind === "update" || op.kind === "rollback") &&
       fresh.checkpoint.prIntent &&
       !fresh.checkpoint.prResult;
-    if (code === "outcome_unknown" || hasWriteIntent || hasPrIntent) {
+    const hasMergeIntent =
+      op.kind === "merge" &&
+      fresh.checkpoint.mergeIntent &&
+      !fresh.checkpoint.mergeResult;
+    if (
+      code === "outcome_unknown" ||
+      hasWriteIntent ||
+      hasPrIntent ||
+      hasMergeIntent
+    ) {
       // A timeout can hide a successful external write. One bounded authoritative lookup
       // runs immediately; subsequent administrator retries repeat only this recovery path.
       if (code !== "outcome_unknown") {
         try {
           const recovered =
-            op.kind === "update"
-              ? await processUpdate(fresh, token)
-              : await processDiscussion(fresh, token);
+            op.kind === "merge"
+              ? await processMerge(fresh, token)
+              : op.kind === "update" || op.kind === "rollback"
+                ? await processUpdate(fresh, token)
+                : await processDiscussion(fresh, token);
+          if (op.kind === "merge") {
+            await synchronizePullRequests();
+            await synchronizePublication();
+          }
           await finishOperation(
             id,
             token,
-            op.kind === "update" ? "awaiting_review" : "succeeded",
+            op.kind === "update" || op.kind === "rollback"
+              ? "awaiting_review"
+              : "succeeded",
             recovered,
           );
           return { retry: false, delay: 0 };
@@ -113,7 +142,17 @@ export async function executeOperation(
       status !== 403 &&
       status !== 422;
     await checkpoint(id, token, { lastSafeFailure: code, autoRetry: retry });
-    await finishOperation(id, token, "failed", {}, code, delay);
+    await finishOperation(
+      id,
+      token,
+      "failed",
+      op.kind === "merge"
+        ? ((fresh.checkpoint.mergeResult as
+            Record<string, unknown> | undefined) ?? {})
+        : {},
+      code,
+      delay,
+    );
     return { retry, delay };
   }
 }

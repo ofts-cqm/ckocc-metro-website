@@ -11,7 +11,11 @@ import {
   idempotencyKeySchema,
   updateSchema,
 } from "@/lib/schemas";
-import type { PublishedMap, UpdateSummary } from "@/lib/contracts";
+import {
+  UPDATE_HISTORY_PAGE_SIZE,
+  type PublishedMap,
+  type UpdateSummary,
+} from "@/lib/contracts";
 import { readJson, json, errorResponse } from "@/server/http";
 import {
   requireUser,
@@ -496,12 +500,44 @@ export const postUpdate = route(async (request) => {
 });
 export const getUpdates = route(async (request) => {
   const user = await requireUser(request);
-  const result = await query<Operation>(
-    `SELECT * FROM metro_operations WHERE kind='update' AND ($1::boolean OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`,
-    [user.role === "admin", user.id],
+  const historyPage = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1000000)
+    .parse(new URL(request.url).searchParams.get("page") ?? 1);
+  const othersPage = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1000000)
+    .parse(new URL(request.url).searchParams.get("othersPage") ?? 1);
+  type AuthoredOperation = Operation & { author_name: string | null };
+  const repository = repositoryConfig().key;
+  const result = await query<AuthoredOperation>(
+    `SELECT o.*, u.name AS author_name FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+     WHERE o.kind IN ('update','rollback') AND o.actor_id=$1 AND o.checkpoint->>'repository'=$2
+     ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
+    [user.id, repository, (historyPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
   );
-  const updates: UpdateSummary[] = result.rows.map((op) => ({
+  const others =
+    user.role === "admin"
+      ? await query<AuthoredOperation>(
+          `SELECT o.*, u.name AS author_name FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+     WHERE o.kind IN ('update','rollback') AND o.actor_id IS DISTINCT FROM $1 AND o.checkpoint->>'repository'=$2
+     ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
+          [user.id, repository, (othersPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
+        )
+      : { rows: [] };
+  const publication = await query<{ operation_id: string }>(
+    "SELECT manifest->>'operation_id' AS operation_id FROM metro_publications WHERE repository=$1",
+    [repositoryConfig().key],
+  );
+  const summary = (op: AuthoredOperation): UpdateSummary => ({
+    authorName: op.author_name,
     id: op.id,
+    isCurrentPublication: publication.rows[0]?.operation_id === op.id,
+    rollbackOf: op.kind === "rollback" ? String(op.payload.updateId) : null,
     status: op.status,
     summary: String(op.payload.summary),
     createdAt: new Date(op.created_at).toISOString(),
@@ -517,13 +553,13 @@ export const getUpdates = route(async (request) => {
       typeof op.result.prNumber === "number" ? op.result.prNumber : null,
     prUrl: typeof op.result.prUrl === "string" ? op.result.prUrl : null,
     errorCode: op.error_code,
-  }));
+  });
   const pending =
     user.role === "admin"
       ? []
       : (
           await query<Operation>(
-            `SELECT * FROM metro_operations WHERE kind='update' AND status='awaiting_review' AND actor_id<>$1 ORDER BY created_at DESC LIMIT 30`,
+            `SELECT * FROM metro_operations WHERE kind IN ('update','rollback') AND status='awaiting_review' AND actor_id<>$1 ORDER BY created_at DESC LIMIT 30`,
             [user.id],
           )
         ).rows;
@@ -543,7 +579,13 @@ export const getUpdates = route(async (request) => {
     prUrl: op.result.prUrl ?? null,
   }));
   scheduleReadReconciliation();
-  return json({ updates, pendingOthers });
+  return json({
+    updates: result.rows.slice(0, UPDATE_HISTORY_PAGE_SIZE).map(summary),
+    otherUpdates: others.rows.slice(0, UPDATE_HISTORY_PAGE_SIZE).map(summary),
+    pendingOthers,
+    hasMore: result.rows.length > UPDATE_HISTORY_PAGE_SIZE,
+    othersHasMore: others.rows.length > UPDATE_HISTORY_PAGE_SIZE,
+  });
 });
 
 export const getAdminOperations = route(async (request) => {

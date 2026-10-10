@@ -78,7 +78,7 @@ export async function requireAdmin(
   ) {
     throw new AppError(
       "fresh_auth_required",
-      "Sign out and sign in again before managing accounts or settings.",
+      "Sign out and sign in again before making an administrator change.",
       401,
     );
   }

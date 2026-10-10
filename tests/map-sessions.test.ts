@@ -25,6 +25,9 @@ let historyPages: string[][];
 let pages: number[];
 let inserted: unknown[][];
 let authenticated = true;
+let userRole = "collaborator";
+let historyRows = 1;
+let updateQueries: { sql: string; params: unknown[] }[] = [];
 const user = {
   id: "player",
   email: "test@example.invalid",
@@ -35,7 +38,7 @@ mock.module("../src/server/auth/authorize.ts", {
   namedExports: {
     requireUser: async () => {
       if (!authenticated) throw new PipelineError("unauthorized", 401);
-      return user;
+      return { ...user, role: userRole };
     },
   },
 });
@@ -55,6 +58,27 @@ mock.module("../src/server/db/index.ts", {
       throw new Error("Unexpected transaction");
     },
     query: async (sql: string, params: unknown[]) => {
+      if (sql.includes("SELECT o.*, u.name AS author_name")) {
+        updateQueries.push({ sql, params });
+        return {
+          rows: Array.from({ length: historyRows }, () => ({
+            id: sql.includes("IS DISTINCT FROM") ? "other-update" : "update",
+            author_name: sql.includes("IS DISTINCT FROM")
+              ? "Other player"
+              : "Player",
+            status: "published",
+            payload: {
+              summary: "Map update",
+              baseMapRevision: original.map_revision,
+            },
+            result: {},
+            checkpoint: { mapRevision: changed.map_revision },
+            created_at: new Date(),
+            updated_at: new Date(),
+            error_code: null,
+          })),
+        };
+      }
       if (sql.includes("SELECT * FROM metro_operations"))
         return {
           rows: [
@@ -96,7 +120,7 @@ mock.module("../src/server/db/index.ts", {
 mock.module("../src/server/github/client.ts", {
   namedExports: {
     MAP_PATHS: { manifest: "maps/manifest.json" },
-    repositoryConfig: () => ({ owner: "test", repo: "map" }),
+    repositoryConfig: () => ({ owner: "test", repo: "map", key: "test/map" }),
     githubConfigured: () => false,
     currentHead: async () => head,
     readFileAt: async (commit: string) => {
@@ -135,6 +159,9 @@ before(async () => {
 });
 beforeEach(() => {
   authenticated = true;
+  userRole = "collaborator";
+  historyRows = 1;
+  updateQueries = [];
   head = restoredCommit;
   manifests = { [restoredCommit]: original, [updateCommit]: changed };
   comparisons = [];
@@ -297,4 +324,64 @@ test("current map route reads reverted HEAD and history exposes submitted hash",
     ).status,
     401,
   );
+});
+
+test("administrator history separates creators and paginates both lists independently", async () => {
+  userRole = "admin";
+  const response = await handlers.getUpdates(
+    new Request("http://localhost/api/updates?page=2&othersPage=3"),
+    context,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(
+    body.updates.map((op: { id: string }) => op.id),
+    ["update"],
+  );
+  assert.deepEqual(
+    body.otherUpdates.map((op: { id: string }) => op.id),
+    ["other-update"],
+  );
+  assert.equal(body.otherUpdates[0].authorName, "Other player");
+  assert.match(updateQueries[0].sql, /o.actor_id=\$1/);
+  assert.match(updateQueries[1].sql, /o.actor_id IS DISTINCT FROM \$1/);
+  assert.deepEqual(
+    updateQueries.map((q) => q.params),
+    [
+      ["player", "test/map", 10],
+      ["player", "test/map", 20],
+    ],
+  );
+});
+test("collaborators cannot request other users' full history", async () => {
+  const response = await handlers.getUpdates(
+    new Request("http://localhost/api/updates?othersPage=2"),
+    context,
+  );
+  const body = await response.json();
+  assert.deepEqual(body.otherUpdates, []);
+  assert.equal(updateQueries.length, 1);
+});
+
+test("both history groups return at most ten updates and indicate more results", async () => {
+  userRole = "admin";
+  historyRows = 11;
+  const response = await handlers.getUpdates(
+    new Request("http://localhost/api/updates"),
+    context,
+  );
+  const body = await response.json();
+  assert.equal(body.updates.length, 10);
+  assert.equal(body.otherUpdates.length, 10);
+  assert.equal(body.hasMore, true);
+  assert.equal(body.othersHasMore, true);
+  historyRows = 10;
+  const lastPage = await (
+    await handlers.getUpdates(
+      new Request("http://localhost/api/updates"),
+      context,
+    )
+  ).json();
+  assert.equal(lastPage.hasMore, false);
+  assert.equal(lastPage.othersHasMore, false);
 });
