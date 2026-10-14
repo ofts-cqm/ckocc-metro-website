@@ -107,6 +107,7 @@ export function errorKey(error: unknown): MessageKey {
   if (/BASE_REVISION_NOT_FOUND/.test(code)) return "baseNotFound";
   if (/UNAPPROVED_BASE_REVISION/.test(code)) return "baseUnapproved";
   if (/ACCOUNT_EXISTS/.test(code)) return "accountExists";
+  if (/REGISTERED_GAME_NAME/.test(code)) return "errorRegisteredName";
   if (/CANNOT_DISABLE_SELF/.test(code)) return "cannotDisableSelf";
   if (/LAST_ADMIN/.test(code)) return "lastAdmin";
   if (/FRESH_AUTH/.test(code)) return "freshAuth";

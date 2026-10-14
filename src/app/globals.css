@@ -1689,7 +1689,7 @@ code {
   margin-left: auto;
   color: #9aa68c;
 }
-.comment-unverified {
+.comment-verification {
   font-size: 9px;
   color: #a6af9a;
 }
@@ -2788,7 +2788,7 @@ code {
     height: 29px;
     font-size: 12px;
   }
-  .comment-unverified {
+  .comment-verification {
     font-size: 8px;
   }
   .comment-content header time {

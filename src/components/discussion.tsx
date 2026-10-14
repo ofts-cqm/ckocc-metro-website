@@ -281,9 +281,11 @@ export function IssuePage({ number }: { number: number }) {
                     <div className="comment-content">
                       <header>
                         <strong>{comment.gameName || comment.author}</strong>
-                        {comment.unverified && (
-                          <span className="comment-unverified">
-                            {m.anonymous}
+                        {comment.nameVerification && (
+                          <span className="comment-verification">
+                            {comment.nameVerification === "verified"
+                              ? m.verifiedName
+                              : m.anonymous}
                           </span>
                         )}
                         <time dateTime={comment.createdAt}>

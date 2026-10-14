@@ -199,15 +199,24 @@ export async function issueComments(number: number, page: number) {
       op.result.commentId === c.id &&
       op.payload.issueNumber === number &&
       parsed.success &&
-      commentTemplate(parsed.data, op.id) === c.body;
+      (commentTemplate(parsed.data, op.id, !!op.actor_id) === c.body ||
+        (!!op.actor_id && commentTemplate(parsed.data, op.id) === c.body));
+    const verified = !!trusted && !!op?.actor_id;
     return {
       id: c.id,
-      body: c.body || "",
+      body:
+        verified && parsed.success && op
+          ? commentTemplate(parsed.data, op.id, true)
+          : c.body || "",
       gameName: trusted && parsed.success ? parsed.data.gameName : null,
       author: c.user?.login || "GitHub",
       createdAt: c.created_at,
       updatedAt: c.updated_at,
-      unverified: !!trusted,
+      nameVerification: trusted
+        ? verified
+          ? "verified"
+          : "unverified"
+        : null,
     };
   });
   return { comments, page, hasMore: result.hasMore };

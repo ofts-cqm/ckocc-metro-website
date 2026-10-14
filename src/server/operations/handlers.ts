@@ -121,6 +121,15 @@ const issueNumber = async (
     .positive()
     .parse(await param(context, "number"));
 
+async function assertGuestNameAvailable(gameName: string) {
+  const registered = await query(
+    'SELECT 1 FROM "user" WHERE lower(btrim(name)) = lower($1) LIMIT 1',
+    [gameName],
+  );
+  if (registered.rowCount)
+    throw new PipelineError("registered_game_name", 409);
+}
+
 async function queueReadReconciliation() {
   const recent = await query(
     "SELECT id FROM metro_operations WHERE kind='sync' AND created_at>now()-interval '60 seconds' LIMIT 1",
@@ -230,13 +239,15 @@ export const postRequest = route(async (request) => {
     key: input.key,
     receiptToken: input.receiptToken,
     payload,
-    authorize: () =>
-      requireAnonymousWrite(
+    authorize: async () => {
+      if (!user) await assertGuestNameAvailable(payload.gameName);
+      await requireAnonymousWrite(
         request,
         "request",
         input.challengeToken,
         input.key,
-      ),
+      );
+    },
   });
   await launchOperation(operation.id);
   return json(
@@ -274,7 +285,7 @@ export const postComment = route(async (request, context) => {
   const payload = commentSchema.parse(
     user ? { ...input.payload, gameName: user.name } : input.payload,
   );
-  commentTemplate(payload, "00000000-0000-0000-0000-000000000000");
+  commentTemplate(payload, "00000000-0000-0000-0000-000000000000", !!user);
   const operation = await acceptOperation({
     kind: "comment",
     scope: user
@@ -285,6 +296,7 @@ export const postComment = route(async (request, context) => {
     receiptToken: input.receiptToken,
     payload: { ...payload, issueNumber: number },
     authorize: async () => {
+      if (!user) await assertGuestNameAvailable(payload.gameName);
       await requireAnonymousWrite(
         request,
         "comment",

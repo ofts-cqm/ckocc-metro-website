@@ -707,7 +707,9 @@ export function CommentForm({
                 }
               />
             </Field>
-            <p className="field-hint">{m.publicNotice}</p>
+            <p className="field-hint">
+              {auth.user ? m.accountCommentNotice : m.publicNotice}
+            </p>
             <Turnstile
               action="comment"
               key={challengeVersion}

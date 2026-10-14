@@ -80,6 +80,7 @@ const en = {
   lineUpdate: "Line update",
   comments: "comments",
   anonymous: "Submitted name · unverified",
+  verifiedName: "Submitted name · verified",
   community: "Community request",
   by: "by",
   readRequest: "Read request",
@@ -102,6 +103,8 @@ const en = {
   commentPlaceholder: "What would make the network better?",
   publicNotice:
     "Your submitted name and message will be public on this website and GitHub. In-game names are not verified.",
+  accountCommentNotice:
+    "Your account's in-game name and message will be public on this website and GitHub.",
   draftNotice: "Your draft is saved in this browser tab.",
   lineName: "Line name",
   lineNumber: "Line number or identifier",
@@ -369,6 +372,8 @@ const en = {
   errorGeneric: "Something went wrong. Your draft is safe; please try again.",
   errorNetwork: "Could not connect. Check your connection and try again.",
   errorValidation: "Check the form fields and try again.",
+  errorRegisteredName:
+    "That in-game name belongs to a registered account. Sign in or use a different name.",
   errorRateLimit:
     "You have sent several requests recently. Please wait a little before trying again.",
   errorUnavailable: "This service is not ready yet. Please try again later.",
@@ -471,6 +476,7 @@ const cn: Messages = {
   lineUpdate: "线路更新",
   comments: "条评论",
   anonymous: "提交者名称 · 未验证",
+  verifiedName: "提交者名称 · 已验证",
   community: "社区请求",
   by: "来自",
   readRequest: "查看请求",
@@ -492,6 +498,7 @@ const cn: Messages = {
   commentPlaceholder: "怎样让交通网络变得更好？",
   publicNotice:
     "你填写的名称和内容将在本站及 GitHub 公开。游戏内名称未经验证。",
+  accountCommentNotice: "你账号中的游戏内名称和留言将在本站及 GitHub 公开。",
   draftNotice: "草稿会保存在当前浏览器标签页中。",
   lineName: "线路名称",
   lineNumber: "线路编号或标识",
@@ -729,6 +736,7 @@ const cn: Messages = {
   errorGeneric: "出了点问题。草稿已保留，请重试。",
   errorNetwork: "连接失败，请检查网络后重试。",
   errorValidation: "请检查表单内容后重试。",
+  errorRegisteredName: "该游戏内名称属于已注册账号。请登录或使用其他名称。",
   errorRateLimit: "你最近提交的内容较多，请稍后重试。",
   errorUnavailable: "服务尚未就绪，请稍后再试。",
   errorPaused: "管理员已暂时停止接收新请求与评论。",
@@ -821,6 +829,7 @@ const hk: Messages = {
   lineUpdate: "路綫更新",
   comments: "則留言",
   anonymous: "提交者名稱 · 未經驗證",
+  verifiedName: "提交者名稱 · 已驗證",
   community: "社群請求",
   by: "來自",
   readRequest: "查看請求",
@@ -842,6 +851,7 @@ const hk: Messages = {
   commentPlaceholder: "怎樣令鐵路網絡更好？",
   publicNotice:
     "你填寫的名稱及內容會在本站和 GitHub 公開。遊戲內名稱未經驗證。",
+  accountCommentNotice: "你帳戶中的遊戲內名稱及留言會在本站和 GitHub 公開。",
   draftNotice: "草稿會儲存在目前的瀏覽器分頁。",
   lineName: "路綫名稱",
   lineNumber: "路綫編號或識別名稱",
@@ -1080,6 +1090,7 @@ const hk: Messages = {
   errorGeneric: "發生問題。草稿已保留，請再試一次。",
   errorNetwork: "未能連線，請檢查網絡後再試。",
   errorValidation: "請檢查表格內容後再試。",
+  errorRegisteredName: "該遊戲內名稱屬於已註冊帳戶。請登入或使用其他名稱。",
   errorRateLimit: "你最近提交的內容較多，請稍後再試。",
   errorUnavailable: "服務尚未準備好，請稍後再試。",
   errorPaused: "管理員已暫停接收新請求及留言。",

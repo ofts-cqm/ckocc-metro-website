@@ -25,6 +25,7 @@ async function mockDiscussion(
   page: Page,
   savedStatus?: OperationStatus,
   failRefresh = false,
+  nameVerification: "verified" | "unverified" = "unverified",
 ) {
   const calls = { issue: 0, comments: 0, operation: 0, refresh: 0 };
   let completed = false;
@@ -92,7 +93,7 @@ async function mockDiscussion(
               author: "metro-bot",
               createdAt,
               updatedAt: createdAt,
-              unverified: true,
+              nameVerification,
             },
           ],
           page: 1,
@@ -138,6 +139,14 @@ test("opening comments without a saved receipt loads once", async ({
   expect(calls.operation).toBe(0);
   expect(calls.refresh).toBe(0);
   expect(errors).toEqual([]);
+});
+
+test("a signed-in comment displays the verified name label", async ({ page }) => {
+  await mockDiscussion(page, undefined, false, "verified");
+  await page.goto(`/en-us/issues/${issueNumber}`);
+  await expect(page.locator(".comment-card .comment-verification")).toHaveText(
+    "Submitted name · verified",
+  );
 });
 
 for (const failRefresh of [false, true]) {

@@ -60,7 +60,7 @@ export type IssueComment = {
   author: string;
   createdAt: string;
   updatedAt: string;
-  unverified: boolean;
+  nameVerification: "verified" | "unverified" | null;
 };
 export type PublishedMap = {
   revision: string;
