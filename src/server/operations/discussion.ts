@@ -4,7 +4,11 @@ import {
   repositoryConfig,
   expectedBotLogin,
 } from "@/server/github/client";
-import { assertEligibleIssue, invalidateIssues } from "@/server/github/issues";
+import {
+  assertEligibleIssue,
+  assertReplyTarget,
+  invalidateIssues,
+} from "@/server/github/issues";
 import {
   requestTemplate,
   commentTemplate,
@@ -112,10 +116,12 @@ export async function processDiscussion(op: Operation, token: string) {
     return value;
   }
   const issueNumber = Number(op.payload.issueNumber);
+  const issueUrl = `https://github.com/${owner}/${repo}/issues/${issueNumber}`;
   const body = commentTemplate(
     op.payload as unknown as CommentPayload,
     op.id,
     !!op.actor_id,
+    issueUrl,
   );
   if (op.checkpoint.discussionResult)
     return op.checkpoint.discussionResult as Record<string, unknown>;
@@ -123,11 +129,21 @@ export async function processDiscussion(op: Operation, token: string) {
     return recoverDiscussion(
       op,
       op.actor_id
-        ? [body, commentTemplate(op.payload as unknown as CommentPayload, op.id)]
+        ? [
+            body,
+            commentTemplate(
+              op.payload as unknown as CommentPayload,
+              op.id,
+              false,
+              issueUrl,
+            ),
+          ]
         : body,
       issueNumber,
     );
   await assertEligibleIssue(issueNumber, true);
+  if (op.payload.replyToCommentId)
+    await assertReplyTarget(issueNumber, Number(op.payload.replyToCommentId));
   await checkpoint(op.id, token, { writeIntent: true });
   const result = await client.rest.issues.createComment({
     owner,

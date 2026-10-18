@@ -186,6 +186,9 @@ export function IssuePage({ number }: { number: number }) {
   const auth = useAuth();
   const issueResult = useApi<{ issue: IssueDetail }>(`/api/issues/${number}`);
   const [page, setPage] = useState(1);
+  const [replyTo, setReplyTo] = useState<{ id: number; name: string } | null>(
+    null,
+  );
   const commentsResult = useApi<{
     comments: IssueComment[];
     page: number;
@@ -272,7 +275,11 @@ export function IssuePage({ number }: { number: number }) {
             ) : commentsResult.data?.comments.length ? (
               <div className="comment-list">
                 {commentsResult.data.comments.map((comment) => (
-                  <article className="comment-card" key={comment.id}>
+                  <article
+                    className="comment-card"
+                    key={comment.id}
+                    id={`comment-${comment.id}`}
+                  >
                     <div className="avatar">
                       {(comment.gameName || comment.author)
                         .slice(0, 1)
@@ -292,7 +299,46 @@ export function IssuePage({ number }: { number: number }) {
                           {formatDate(comment.createdAt, locale)}
                         </time>
                       </header>
+                      {comment.replyToCommentId && (
+                        <a
+                          className="comment-parent"
+                          href={
+                            commentsResult.data?.comments.some(
+                              (item) => item.id === comment.replyToCommentId,
+                            )
+                              ? `#comment-${comment.replyToCommentId}`
+                              : `${issue.url}#issuecomment-${comment.replyToCommentId}`
+                          }
+                        >
+                          {m.inReplyTo.replace(
+                            "{id}",
+                            String(comment.replyToCommentId),
+                          )}
+                        </a>
+                      )}
                       <SafeMarkdown>{comment.body}</SafeMarkdown>
+                      {issue.state === "open" && !issue.locked && (
+                        <button
+                          type="button"
+                          className="comment-reply-button"
+                          onClick={() => {
+                            setReplyTo({
+                              id: comment.id,
+                              name: comment.gameName || comment.author,
+                            });
+                            requestAnimationFrame(() =>
+                              document
+                                .getElementById("comment-composer")
+                                ?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                }),
+                            );
+                          }}
+                        >
+                          {m.replyToComment}
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -331,7 +377,10 @@ export function IssuePage({ number }: { number: number }) {
           {issue.state === "open" && !issue.locked ? (
             <CommentForm
               issueNumber={number}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
               onSuccess={() => {
+                setReplyTo(null);
                 issueResult.refresh();
                 commentsResult.refresh();
               }}

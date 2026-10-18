@@ -237,7 +237,7 @@ export async function pruneSecurityRecords(): Promise<void> {
       "DELETE FROM metro_invitations WHERE expires_at < now() - interval '30 days'",
     );
     await client.query(
-      "DELETE FROM metro_audit WHERE created_at < now() - interval '180 days'",
+      "DELETE FROM metro_audit WHERE action <> 'notifications.viewed' AND created_at < now() - interval '180 days'",
     );
   });
 }

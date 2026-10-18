@@ -1693,6 +1693,110 @@ code {
   font-size: 9px;
   color: #a6af9a;
 }
+.comment-parent {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #537a40;
+}
+.comment-reply-button {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #537a40;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.reply-target {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  color: #536b47;
+}
+.reply-target .button {
+  padding: 7px 10px;
+}
+.mention-suggestions {
+  border: 1px solid #dce7d0;
+  border-radius: 8px;
+  background: #fff;
+  margin: 5px 0 10px;
+  max-height: 220px;
+  overflow: auto;
+}
+.mention-suggestions button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.mention-suggestions button[aria-selected="true"],
+.mention-suggestions button:hover {
+  background: #eef4e8;
+}
+.mention-suggestions span {
+  color: #7e8974;
+  font-size: 11px;
+}
+.notification-menu {
+  position: relative;
+}
+.notification-count {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 17px;
+  padding: 2px 4px;
+  border-radius: 99px;
+  background: #537a40;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+}
+.notification-popover {
+  position: absolute;
+  z-index: 50;
+  right: 0;
+  top: calc(100% + 9px);
+  width: min(330px, calc(100vw - 28px));
+  max-height: 430px;
+  overflow: auto;
+  border: 1px solid #dce7d0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px #27311b24;
+  padding: 16px;
+}
+.notification-popover h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+.notification-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.notification-popover li + li {
+  border-top: 1px solid #e3e9db;
+}
+.notification-popover li a {
+  display: block;
+  padding: 10px 2px;
+  color: #344b2d;
+  text-decoration: none;
+}
+.notification-popover li a:hover {
+  text-decoration: underline;
+}
 .reply-panel {
   margin-top: 32px;
 }
@@ -2125,6 +2229,13 @@ code {
   font-weight: 500;
   color: #597346;
   line-height: 1.6;
+}
+.request-notification-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  line-height: 1.5;
 }
 .update-history,
 .admin-accounts,

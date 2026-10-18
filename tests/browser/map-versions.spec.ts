@@ -21,6 +21,8 @@ test("map versions are complete, copyable and validate without GitHub", async ({
           },
         },
       });
+    } else if (path === "/api/notifications") {
+      await route.fulfill({ json: { notifications: [], unreadCount: 0 } });
     } else if (path === "/api/map/head") {
       await route.fulfill({
         json: { revision: current, commitSha: "1".repeat(40) },
@@ -53,6 +55,7 @@ test("map versions are complete, copyable and validate without GitHub", async ({
   });
   await page.goto("/en-us/updates");
   await expect(page.getByText(current, { exact: true })).toBeVisible();
+  await page.locator(".update-accordion-summary").filter({ hasText: "Previous update" }).click();
   await expect(page.getByText(submitted, { exact: true })).toBeVisible();
   await expect(page.getByText(base, { exact: true })).toBeVisible();
   await page.getByText("Already editing a downloaded map?").click();

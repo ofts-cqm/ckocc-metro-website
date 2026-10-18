@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -15,7 +15,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { languageTags, type MessageKey } from "@/lib/i18n";
-import type { CommentPayload, LineType, RequestPayload } from "@/lib/contracts";
+import type {
+  CommentPayload,
+  LineType,
+  MentionSelection,
+  RequestPayload,
+} from "@/lib/contracts";
 import { commentSchema, requestSchema } from "@/lib/schemas";
 import { Turnstile } from "./turnstile";
 import {
@@ -33,6 +38,7 @@ import {
   useAuth,
   useLocale,
   useMessages,
+  useApi,
   type Receipt,
 } from "./ui";
 
@@ -69,10 +75,12 @@ type RequestDraft = {
   kind: "general" | "line-update";
   gameName: string;
   comment: string;
+  mentions: MentionSelection[];
   lineName: string;
   lineNumber: string;
   lineType: LineType;
   operation: "add" | "update";
+  notifyAdmins: boolean;
   defaultDimension: string;
   stations: StationDraft[];
   notes: string;
@@ -81,10 +89,12 @@ const initialRequest: RequestDraft = {
   kind: "general",
   gameName: "",
   comment: "",
+  mentions: [],
   lineName: "",
   lineNumber: "",
   lineType: "double-track-blue-ice",
   operation: "add",
+  notifyAdmins: true,
   defaultDimension: "overworld",
   stations: [{ ...station(), id: "first" }],
   notes: "",
@@ -98,6 +108,217 @@ type PublicAttempt = {
   payload: RequestPayload | CommentPayload;
   receipt?: Receipt;
 };
+
+type MentionSuggestion = { id: string; name: string; role: string };
+function MentionField({
+  value,
+  mentions,
+  onChange,
+  rows,
+  name,
+  placeholder,
+  showCount = false,
+}: {
+  value: string;
+  mentions: MentionSelection[];
+  onChange: (value: string, mentions: MentionSelection[]) => void;
+  rows: number;
+  name?: string;
+  placeholder?: string;
+  showCount?: boolean;
+}) {
+  const m = useMessages();
+  const auth = useAuth();
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const [mentionInput, setMentionInput] = useState<{
+    start: number;
+    end: number;
+    query: string;
+  } | null>(null);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const [search, setSearch] = useState<{
+    query: string;
+    suggestions: MentionSuggestion[];
+    error?: unknown;
+  } | null>(null);
+  const query = mentionInput?.query ?? "";
+  const quota = useApi<{ remaining: number | null }>("/api/mentions");
+  useEffect(() => {
+    if (!query) return;
+    let active = true;
+    void api<{ suggestions: MentionSuggestion[] }>(
+      `/api/mentions?q=${encodeURIComponent(query)}`,
+    )
+      .then((result) => {
+        if (active) setSearch({ query, suggestions: result.suggestions });
+      })
+      .catch((error) => {
+        if (active) setSearch({ query, suggestions: [], error });
+      });
+    return () => {
+      active = false;
+    };
+  }, [query]);
+  const matchingSearch = search?.query === query ? search : null;
+  const suggestions = matchingSearch?.suggestions ?? [];
+  function changedText(next: string, cursor: number) {
+    let start = 0;
+    while (
+      start < value.length &&
+      start < next.length &&
+      value[start] === next[start]
+    )
+      start++;
+    let oldEnd = value.length;
+    let newEnd = next.length;
+    while (
+      oldEnd > start &&
+      newEnd > start &&
+      value[oldEnd - 1] === next[newEnd - 1]
+    ) {
+      oldEnd--;
+      newEnd--;
+    }
+    const delta = newEnd - oldEnd;
+    const kept = (mentions ?? [])
+      .flatMap((item) =>
+        item.end <= start
+          ? [item]
+          : item.start >= oldEnd
+            ? [{ ...item, start: item.start + delta, end: item.end + delta }]
+            : [],
+      )
+      .filter(
+        (item) =>
+          (item.start === 0 || !/[\p{L}\p{N}_]/u.test(next[item.start - 1])) &&
+          (item.end === next.length || !/[\p{L}\p{N}_]/u.test(next[item.end])),
+      );
+    onChange(next, kept);
+    const prefix = next.slice(0, cursor);
+    const match = /(?:^|[^\p{L}\p{N}_])@([\p{L}\p{N} _-]{1,64})$/u.exec(prefix);
+    setMentionInput(
+      match
+        ? {
+            start: prefix.length - match[1].length - 1,
+            end: cursor,
+            query: match[1].trimStart(),
+          }
+        : null,
+    );
+    setSelectedSuggestion(0);
+  }
+  function chooseMention(item: MentionSuggestion) {
+    if (!mentionInput) return;
+    const token = `@${item.name}`;
+    const next =
+      value.slice(0, mentionInput.start) +
+      token +
+      value.slice(mentionInput.end);
+    const delta = token.length - (mentionInput.end - mentionInput.start);
+    const kept = (mentions ?? []).flatMap((current) =>
+      current.end <= mentionInput.start
+        ? [current]
+        : current.start >= mentionInput.end
+          ? [
+              {
+                ...current,
+                start: current.start + delta,
+                end: current.end + delta,
+              },
+            ]
+          : [],
+    );
+    kept.push({
+      userId: item.id,
+      start: mentionInput.start,
+      end: mentionInput.start + token.length,
+    });
+    onChange(next, kept);
+    setMentionInput(null);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(
+        mentionInput.start + token.length,
+        mentionInput.start + token.length,
+      );
+    });
+  }
+  return (
+    <>
+      <Field label={m.comment}>
+        <textarea
+          ref={textarea}
+          name={name}
+          required
+          rows={rows}
+          maxLength={5000}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => changedText(e.target.value, e.target.selectionStart)}
+          onKeyDown={(e) => {
+            if (!suggestions.length) return;
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setSelectedSuggestion(
+                (current) =>
+                  (current +
+                    (e.key === "ArrowDown" ? 1 : -1) +
+                    suggestions.length) %
+                  suggestions.length,
+              );
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              chooseMention(suggestions[selectedSuggestion] ?? suggestions[0]);
+            } else if (e.key === "Escape") setMentionInput(null);
+          }}
+        />
+        {showCount && (
+          <span className="character-count">
+            {Array.from(value).length} / 5,000
+          </span>
+        )}
+      </Field>
+      {mentionInput && suggestions.length > 0 && (
+        <div className="mention-suggestions" role="listbox">
+          {suggestions.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              role="option"
+              aria-selected={index === selectedSuggestion}
+              onClick={() => chooseMention(item)}
+            >
+              <strong>{item.name}</strong>
+              <span>
+                {item.role === "admin"
+                  ? m.mentionRoleAdmin
+                  : m.mentionRoleCollaborator}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {mentionInput &&
+        query &&
+        matchingSearch &&
+        !matchingSearch.error &&
+        !suggestions.length && (
+          <p className="field-hint" role="status">
+            {m.mentionUserNotFound}
+          </p>
+        )}
+      {mentionInput && matchingSearch?.error && (
+        <ErrorNotice error={matchingSearch.error} />
+      )}
+      <p className="field-hint">
+        {m.mentionHint}{" "}
+        {!auth.user &&
+          quota.data?.remaining != null &&
+          m.mentionRemaining.replace("{count}", String(quota.data.remaining))}
+      </p>
+    </>
+  );
+}
 
 export function RequestFormPage() {
   const m = useMessages();
@@ -165,6 +386,7 @@ export function RequestFormPage() {
             gameName,
             locale: languageTags[locale],
             comment: draft.comment,
+            ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
           }
         : {
             kind: draft.kind,
@@ -174,6 +396,7 @@ export function RequestFormPage() {
             lineNumber: draft.lineNumber,
             lineType: draft.lineType,
             operation: draft.operation,
+            notifyAdmins: draft.notifyAdmins !== false,
             stations: draft.stations.map(({ id: _id, ...s }) => ({
               ...s,
               x: Number(s.x),
@@ -314,20 +537,17 @@ export function RequestFormPage() {
               />
             </Field>
             {draft.kind === "general" ? (
-              <Field label={m.comment}>
-                <textarea
-                  name="comment"
-                  rows={7}
-                  placeholder={m.commentPlaceholder}
-                  value={draft.comment}
-                  maxLength={5000}
-                  required
-                  onChange={(e) => set("comment", e.target.value)}
-                />
-                <span className="character-count">
-                  {Array.from(draft.comment).length} / 5,000
-                </span>
-              </Field>
+              <MentionField
+                name="comment"
+                rows={7}
+                placeholder={m.commentPlaceholder}
+                value={draft.comment}
+                mentions={draft.mentions ?? []}
+                showCount
+                onChange={(comment, mentions) =>
+                  setDraft((previous) => ({ ...previous, comment, mentions }))
+                }
+              />
             ) : (
               <>
                 <div className="form-divider" />
@@ -535,6 +755,14 @@ export function RequestFormPage() {
                     onChange={(e) => set("notes", e.target.value)}
                   />
                 </Field>
+                <label className="request-notification-option">
+                  <input
+                    type="checkbox"
+                    checked={draft.notifyAdmins !== false}
+                    onChange={(e) => set("notifyAdmins", e.target.checked)}
+                  />
+                  <span>{m.notifyAdmins}</span>
+                </label>
               </>
             )}
             <Notice>{m.publicNotice}</Notice>
@@ -565,20 +793,26 @@ export function RequestFormPage() {
 export function CommentForm({
   issueNumber,
   onSuccess,
+  replyTo,
+  onCancelReply,
 }: {
   issueNumber: number;
   onSuccess: () => void;
+  replyTo?: { id: number; name: string } | null;
+  onCancelReply?: () => void;
 }) {
   const m = useMessages();
   const locale = useLocale();
   const auth = useAuth();
-  const [draft, setDraft, clearDraft, ready] = useDraft(
-    `comment-${issueNumber}`,
-    {
-      gameName: "",
-      comment: "",
-    },
-  );
+  const [draft, setDraft, clearDraft, ready] = useDraft<{
+    gameName: string;
+    comment: string;
+    mentions: NonNullable<CommentPayload["mentions"]>;
+  }>(`comment-${issueNumber}`, {
+    gameName: "",
+    comment: "",
+    mentions: [],
+  });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [challengeToken, setChallengeToken] = useState("");
@@ -587,13 +821,24 @@ export function CommentForm({
     useDraft<PublicAttempt | null>(`comment-attempt-${issueNumber}-v1`, null);
   const receipt = attempt?.receipt ?? null;
   const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (replyTo && done && receipt) {
+      clearAttempt();
+      setDone(false);
+    }
+  }, [replyTo?.id, done, receipt, clearAttempt]);
   const gameName = auth.user?.name ?? draft.gameName;
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || receipt || auth.loading || !ready || !attemptReady) return;
     setError(null);
+    const mentions = (draft.mentions ?? []).filter(
+      (item) => item.end <= draft.comment.length,
+    );
     const parsed = commentSchema.safeParse({
-      ...draft,
+      comment: draft.comment,
+      ...(mentions.length ? { mentions } : {}),
+      ...(replyTo ? { replyToCommentId: replyTo.id } : {}),
       gameName,
       locale: languageTags[locale],
     });
@@ -642,7 +887,7 @@ export function CommentForm({
     }
   }
   return (
-    <section className="form-panel reply-panel">
+    <section className="form-panel reply-panel" id="comment-composer">
       <div className="panel-heading">
         <MessageCircle size={22} />
         <div>
@@ -650,6 +895,18 @@ export function CommentForm({
           <p>{m.replyIntro}</p>
         </div>
       </div>
+      {replyTo && !receipt && (
+        <div className="reply-target">
+          <span>{m.replyingTo.replace("{name}", replyTo.name)}</span>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={onCancelReply}
+          >
+            {m.cancelReply}
+          </button>
+        </div>
+      )}
       {receipt ? (
         <>
           <OperationProgress
@@ -696,17 +953,14 @@ export function CommentForm({
                 }
               />
             </Field>
-            <Field label={m.comment}>
-              <textarea
-                required
-                rows={5}
-                maxLength={5000}
-                value={draft.comment}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, comment: e.target.value }))
-                }
-              />
-            </Field>
+            <MentionField
+              rows={5}
+              value={draft.comment}
+              mentions={draft.mentions ?? []}
+              onChange={(comment, mentions) =>
+                setDraft((current) => ({ ...current, comment, mentions }))
+              }
+            />
             <p className="field-hint">
               {auth.user ? m.accountCommentNotice : m.publicNotice}
             </p>

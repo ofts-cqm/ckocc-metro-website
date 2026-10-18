@@ -15,6 +15,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Bell,
   Check,
   ChevronDown,
   CircleAlert,
@@ -34,7 +35,11 @@ import {
   type Locale,
   type MessageKey,
 } from "@/lib/i18n";
-import type { OperationView, SessionUser } from "@/lib/contracts";
+import type {
+  NotificationItem,
+  OperationView,
+  SessionUser,
+} from "@/lib/contracts";
 
 const LocaleContext = createContext<Locale>("en-us");
 export const useLocale = () => useContext(LocaleContext);
@@ -238,7 +243,33 @@ export function SiteShell({
   const pathname = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
   const auth = useApi<{ user: SessionUser | null }>("/api/auth/session");
+  const inbox = useApi<{
+    notifications: NotificationItem[];
+    unreadCount: number;
+  }>(auth.data?.user ? "/api/notifications" : null);
+  useEffect(() => {
+    const newest = inbox.data?.notifications[0];
+    if (!inboxOpen || !newest || !inbox.data?.unreadCount) return;
+    let cancelled = false;
+    void api("/api/notifications", {
+      method: "POST",
+      body: JSON.stringify({ throughId: newest.id }),
+    })
+      .then(() => {
+        if (!cancelled) inbox.refresh();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    inboxOpen,
+    inbox.data?.notifications[0]?.id,
+    inbox.data?.unreadCount,
+    inbox.refresh,
+  ]);
   useEffect(() => {
     document.documentElement.lang = languageTags[locale];
     setMenu(false);
@@ -296,6 +327,62 @@ export function SiteShell({
               )}
             </nav>
             <div className="header-actions">
+              {auth.data?.user && (
+                <div className="notification-menu">
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label={m.notifications}
+                    aria-expanded={inboxOpen}
+                    onClick={() => {
+                      setInboxOpen((value) => !value);
+                      inbox.refresh();
+                    }}
+                  >
+                    <Bell size={18} />
+                    {!!inbox.data?.unreadCount && (
+                      <span className="notification-count">
+                        {inbox.data.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                  {inboxOpen && (
+                    <div className="notification-popover">
+                      <h2>{m.notifications}</h2>
+                      {inbox.loading ? (
+                        <p>{m.loading}</p>
+                      ) : inbox.error ? (
+                        <ErrorNotice error={inbox.error} />
+                      ) : inbox.data?.notifications.length ? (
+                        <ul>
+                          {inbox.data.notifications.map((item) => (
+                            <li key={item.id}>
+                              <Link
+                                href={localeHref(
+                                  locale,
+                                  `/issues/${item.issueNumber}`,
+                                )}
+                                onClick={() => setInboxOpen(false)}
+                              >
+                                {(item.kind === "reply"
+                                  ? m.notificationReply
+                                  : item.kind === "mention"
+                                    ? m.notificationMention
+                                    : item.kind === "line-add"
+                                      ? m.notificationLineAdd
+                                      : m.notificationLineUpdate
+                                ).replace("{name}", item.sender)}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>{m.noNotifications}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="language-select">
                 <Globe2 size={16} />
                 <select

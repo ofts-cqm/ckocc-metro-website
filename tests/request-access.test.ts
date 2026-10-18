@@ -30,6 +30,7 @@ let challengeAction: "request" | "comment";
 let registeredNames: string[];
 let nameChecks: number;
 let listedComments: Record<string, unknown>[];
+let targetIssueUrl = "https://api.github.com/repos/test/map/issues/42";
 
 function makeIssue() {
   return {
@@ -38,6 +39,7 @@ function makeIssue() {
     locked: false,
     labels: [{ name: "metro-request" }],
     html_url: "https://example.invalid/issues/42",
+    url: "https://api.github.com/repos/test/map/issues/42",
     pull_request: undefined as object | undefined,
   };
 }
@@ -70,6 +72,8 @@ mock.module("../src/server/db/index.ts", {
         );
         return { rows: taken ? [{ "?column?": 1 }] : [], rowCount: +taken };
       }
+      if (sql.includes('SELECT u.id,u.name FROM "user" u JOIN metro_profiles'))
+        return { rows: [{ id: "alice", name: "Alice Player" }], rowCount: 1 };
       if (sql.startsWith("SELECT * FROM metro_operations WHERE id=ANY"))
         return {
           rows: storedOperation ? [storedOperation] : [],
@@ -107,6 +111,7 @@ mock.module("../src/server/github/client.ts", {
       rest: {
         issues: {
           get: async () => ({ data: issue }),
+          getComment: async () => ({ data: { issue_url: targetIssueUrl } }),
           listComments: async () => ({ data: listedComments, headers: {} }),
           update: async (input: Record<string, unknown>) => {
             writes.push(input);
@@ -184,6 +189,7 @@ beforeEach((t) => {
   validSession = true;
   user.role = "collaborator";
   issue = makeIssue();
+  targetIssueUrl = issue.url;
   accepted = [];
   storedOperation = null;
   writes = [];
@@ -231,6 +237,23 @@ const general = {
 };
 
 const { kind: _requestKind, ...comment } = general;
+
+test("replies are scoped to a comment on the same writable issue", async () => {
+  challengeAction = "comment";
+  const response = await handlers.postComment(
+    request({ ...comment, gameName: "Visitor", replyToCommentId: 88 }),
+    context,
+  );
+  assert.equal(response.status, 202, await response.text());
+  assert.equal(accepted[0].payload.replyToCommentId, 88);
+  targetIssueUrl = "https://api.github.com/repos/test/map/issues/99";
+  const rejected = await handlers.postComment(
+    request({ ...comment, gameName: "Visitor", replyToCommentId: 88 }),
+    context,
+  );
+  assert.equal(rejected.status, 404);
+  assert.equal(accepted.length, 1);
+});
 
 for (const role of ["collaborator", "admin"] as const) {
   test(`${role} comments use the account name, including omitted or forged names`, async () => {
@@ -318,6 +341,63 @@ test("anonymous requests still require a supplied name and cannot close issues",
   assert.equal(accepted.length, 1);
 });
 
+test("anonymous line requests retain the administrator notification choice", async () => {
+  signedIn = false;
+  const line = {
+    ...general,
+    kind: "line-update",
+    comment: undefined,
+    gameName: "Visitor",
+    lineType: "double-track-rail",
+    operation: "add",
+    stations: [{ chineseName: "站", x: 1, z: 2 }],
+  };
+  assert.equal(
+    (await handlers.postRequest(request(line), context)).status,
+    202,
+  );
+  assert.equal(accepted[0].payload.notifyAdmins, true);
+  assert.equal(
+    (
+      await handlers.postRequest(
+        request({ ...line, notifyAdmins: false }),
+        context,
+      )
+    ).status,
+    202,
+  );
+  assert.equal(accepted[1].payload.notifyAdmins, false);
+});
+
+test("anonymous general thoughts validate mentions and reserve the guest allowance", async () => {
+  signedIn = false;
+  const response = await handlers.postRequest(
+    request({
+      ...general,
+      gameName: "Visitor",
+      comment: "Hello @Alice Player",
+      mentions: [{ userId: "alice", start: 6, end: 19 }],
+    }),
+    context,
+  );
+  assert.equal(response.status, 202, await response.text());
+  assert.deepEqual(accepted[0].payload.mentions, [
+    { userId: "alice", start: 6, end: 19 },
+  ]);
+  assert.equal(typeof accepted[0].reserve, "function");
+  const forged = await handlers.postRequest(
+    request({
+      ...general,
+      gameName: "Visitor",
+      comment: "Hello @Alice Player",
+      mentions: [{ userId: "alice", start: 7, end: 19 }],
+    }),
+    context,
+  );
+  assert.equal(forged.status, 422);
+  assert.equal(accepted.length, 1);
+});
+
 test("disabled and revoked sessions cannot submit or close as collaborators", async () => {
   for (const state of ["disabled", "revoked"]) {
     active = state !== "disabled";
@@ -367,7 +447,11 @@ test("anonymous comments require and preserve the visitor's supplied name", asyn
 
 test("guests cannot claim registered names in requests or comments", async () => {
   signedIn = false;
-  for (const gameName of ["AccountPlayer", " accountplayer ", "disabledplayer"]) {
+  for (const gameName of [
+    "AccountPlayer",
+    " accountplayer ",
+    "disabledplayer",
+  ]) {
     for (const [send, payload] of [
       [handlers.postRequest, { ...general, gameName }],
       [handlers.postComment, { ...comment, gameName }],
@@ -385,14 +469,21 @@ test("guests cannot claim registered names in requests or comments", async () =>
 
 test("signed-in comments show a verified name, including earlier comments", async () => {
   challengeAction = "comment";
-  assert.equal((await handlers.postComment(request(comment), context)).status, 202);
+  assert.equal(
+    (await handlers.postComment(request(comment), context)).status,
+    202,
+  );
   operation.result = { commentId: 88 };
   for (const legacy of [false, true]) {
     listedComments = [
       {
         id: 88,
         body: commentTemplate(
-          operation.payload as { gameName: string; locale: "en-US"; comment: string },
+          operation.payload as {
+            gameName: string;
+            locale: "en-US";
+            comment: string;
+          },
           operation.id,
           !legacy,
         ),
@@ -410,13 +501,20 @@ test("signed-in comments show a verified name, including earlier comments", asyn
 
 test("a signed-in comment retry can recover its earlier unverified GitHub body", async () => {
   challengeAction = "comment";
-  assert.equal((await handlers.postComment(request(comment), context)).status, 202);
+  assert.equal(
+    (await handlers.postComment(request(comment), context)).status,
+    202,
+  );
   operation.checkpoint.writeIntent = true;
   listedComments = [
     {
       id: 88,
       body: commentTemplate(
-        operation.payload as { gameName: string; locale: "en-US"; comment: string },
+        operation.payload as {
+          gameName: string;
+          locale: "en-US";
+          comment: string;
+        },
         operation.id,
       ),
       user: { login: "metro-bot" },

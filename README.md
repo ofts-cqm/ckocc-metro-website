@@ -42,6 +42,8 @@ For temporary local testing, set `DISABLE_RATE_LIMITS=true` in `.env.local`. Thi
 
 Configure per-IP limits for new requests and comments in `.env.local` (or your deployment environment): `NEW_REQUESTS_PER_HOUR=3`, `NEW_REQUESTS_PER_DAY=10`, `NEW_COMMENTS_PER_HOUR=10`, and `NEW_COMMENTS_PER_DAY=30`. Values must be positive integers; missing or invalid values use the defaults shown here. The hourly and daily windows remain fixed at one hour and one day. Restart the server after changing these options.
 
+Guest mentions have a separate per-IP daily allowance: `GUEST_MENTIONS_PER_DAY=3`. Each distinct selected account in a comment or general thought uses one allowance; plain `@` text without a selected account does not. Reply and mention notifications appear in the website inbox for active accounts. Successful public line requests also notify active administrators when the checked-by-default form option is selected. Email delivery is deferred.
+
 ### Project-local PostgreSQL
 
 The development database on this machine is `ckocc_metro_dev` at `127.0.0.1:5433`, using the non-superuser role `ckocc_metro`. Its random password is stored in the ignored, owner-readable `.env.local`. PostgreSQL listens only on loopback; local administrator access uses operating-system peer authentication through the private project socket.
