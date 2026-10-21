@@ -1,6 +1,6 @@
 # Map repository validation setup
 
-This directory contains the validation gate to install into `ofts-cqm/ckocc-metro-map` during deployment. Nothing here has been uploaded or activated. Use an administrator identity to install `.github/workflows/validate-map.yml` and `scripts/validate_map.py`; the runtime bot intentionally lacks Workflows and Administration permissions.
+This directory contains the validation gate for the map data repository. The owner confirmed the current application is deployed; these are reusable installation instructions, not a claim that the deployed gate is pending. See [deployment procedures](../DEPLOYMENT_TESTING.md#github-and-map-repository-setup) and the [technical specification and evidence](../TECHNICAL_SPEC.md#github-operations-merging-and-rollback). For a new installation, use an administrator identity to install `.github/workflows/validate-map.yml` and `scripts/validate_map.py`; the runtime bot intentionally lacks Workflows and Administration permissions.
 
 The check executes validation code from the protected default branch and reads candidate files as data. It checks byte hashes, RMP graph references, PNG chunk CRCs and bounded decompression, the manifest revision, the recorded base commit/revision, and the path allowlist for ordinary map branches. For this personally owned repository, maintenance PRs must start with `maintenance/`, originate in the same repository, and be opened by its owner to change infrastructure files. Map checks still apply. The website confirmation supplies administrator approval; do not permit the runtime bot to bypass required validation or freshness protections.
 
@@ -10,7 +10,7 @@ After installing the workflow and observing its successful baseline run, require
 
 Use two independent rulesets if supported: an identity rule restricting default-branch updates to administrators and the website application through PRs, and a validation rule with no bot/admin bypass for required checks. Setup of the first workflow is an administrator bootstrap operation; it cannot validate itself using a copy that does not yet exist on the protected branch.
 
-The workflow is prepared for review. Deployment and test execution are deferred until the owner returns.
+For each installation or protection change, record the competing-PR and rollback results beside the specification. Existing dated acceptance evidence is in the technical specification.
 
 ## Website controls
 
