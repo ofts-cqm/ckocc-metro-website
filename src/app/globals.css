@@ -495,8 +495,12 @@ code {
 }
 .hero p {
   margin: 17px 0 22px;
-  color: #7a8278;
-  font-size: 14px;
+  padding-left: 16px;
+  border-left: 3px solid var(--green);
+  max-width: 640px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.8;
 }
 .hero-actions {
   display: flex;
@@ -2477,7 +2481,7 @@ code {
     font-size: 43px;
   }
   .hero p {
-    font-size: 13px;
+    font-size: 16px;
   }
   .hero-copy:lang(zh-CN) h1,
   .hero-copy:lang(zh-HK) h1 {
@@ -2611,7 +2615,7 @@ code {
   }
   .hero p {
     max-width: 500px;
-    font-size: 12px;
+    font-size: 15px;
     margin: 16px 0 24px;
   }
   .hero-actions .button {
@@ -2972,10 +2976,10 @@ code {
     line-height: 1.5;
   }
   .hero p {
-    font-size: 11px;
+    font-size: 15px;
     line-height: 1.85;
     margin: 13px 0 20px;
-    max-width: 300px;
+    max-width: 100%;
   }
   .hero-actions {
     gap: 8px;
