@@ -54,12 +54,18 @@ export function LoginPage() {
       auth.refresh();
       const next = params.get("next");
       const destination =
-        next === "admin"
-          ? localeHref(locale, "/admin")
-          : next &&
-              /^\/(en-us|zh-cn|zh-hk)\/(updates|admin)(?:\?.*)?$/.test(next)
-            ? next.replace(/^\/(en-us|zh-cn|zh-hk)/, `/${locale}`)
-            : localeHref(locale, "/updates");
+        next === "notifications"
+          ? localeHref(locale, "?notifications=open")
+          : next === "settings"
+            ? localeHref(locale, "/settings")
+            : next === "admin"
+              ? localeHref(locale, "/admin")
+              : next &&
+                  /^\/(en-us|zh-cn|zh-hk)\/(updates|admin|settings)(?:\?.*)?$/.test(
+                    next,
+                  )
+                ? next.replace(/^\/(en-us|zh-cn|zh-hk)/, `/${locale}`)
+                : localeHref(locale, "/updates");
       router.push(destination);
       router.refresh();
     } catch (e) {

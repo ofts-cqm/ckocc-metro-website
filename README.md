@@ -34,6 +34,31 @@ npm run admin:bootstrap
 
 Bootstrap prompts for email, display name, and a hidden password in an interactive terminal. It refuses if an administrator already exists. Admins then create invitations through the website. There is no public registration or public bootstrap route. Migration checksums are recorded; add a new migration after deployment instead of editing an applied file. Use a direct database connection for migrations because their advisory lock is session-scoped; the app's normal `DATABASE_URL` can use transaction pooling.
 
+### Prepare the production email database before deployment
+
+Set `PRODUCTION_DATABASE_URL` to the production database's **direct connection URL**, either in your shell or in the ignored file `.env.prod-migrations`:
+
+```dotenv
+PRODUCTION_DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=verify-full
+```
+
+Use the TLS settings and CA certificate required by your database provider. Then run:
+
+```sh
+# Read-only prerequisite/checksum check; lists pending email migrations.
+npm run db:migrate:email:prod -- --check
+
+# Apply only 003_email_notifications.sql and 004_email_daily_limit.sql.
+npm run db:migrate:email:prod
+
+# Verify both are recorded as applied.
+npm run db:migrate:email:prod -- --check
+```
+
+This command does not load `.env` or `.env.local`, and requires `PRODUCTION_DATABASE_URL` rather than falling back to `DATABASE_URL`. It requires migrations 001 and 002 to be recorded with matching checksums, validates all four checksums before applying anything, and skips 003/004 if already applied. Each migration is transactional; if 004 fails after 003 succeeds, rerunning resumes with 004. Future migrations are excluded from this command.
+
+These migrations prepare the email tables, launch cutoff, and daily quota without deploying the app or sending email. Keep production `EMAIL_NOTIFICATIONS_ENABLED=false` until deployment and delivery checks are complete. Migration 003 records its execution time as the cutoff; users remain opted out until they explicitly opt in and verify their address.
+
 Bootstrap checks database access before requesting a password. Failures identify the affected step and provide specific guidance for invalid inputs, mismatched passwords, existing accounts, connection failures, and missing migrations; raw provider errors and credentials are never printed. Passwords must contain 8–128 characters, including any spaces. If the command fails, share only its final error message, never your password or `DATABASE_URL`.
 
 Website login also needs `APP_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `ABUSE_HASH_SECRET` in `.env.local`; database setup and administrator bootstrap alone do not configure login. For local development, use `http://localhost:3000` for both URLs and generate independent random secrets of at least 32 characters. Restart `npm run dev` after changing environment variables. Open the site using the configured URL so login's origin check matches.
@@ -42,7 +67,44 @@ For temporary local testing, set `DISABLE_RATE_LIMITS=true` in `.env.local`. Thi
 
 Configure per-IP limits for new requests and comments in `.env.local` (or your deployment environment): `NEW_REQUESTS_PER_HOUR=3`, `NEW_REQUESTS_PER_DAY=10`, `NEW_COMMENTS_PER_HOUR=10`, and `NEW_COMMENTS_PER_DAY=30`. Values must be positive integers; missing or invalid values use the defaults shown here. The hourly and daily windows remain fixed at one hour and one day. Restart the server after changing these options.
 
-Guest mentions have a separate per-IP daily allowance: `GUEST_MENTIONS_PER_DAY=3`. Each distinct selected account in a comment or general thought uses one allowance; plain `@` text without a selected account does not. Reply and mention notifications appear in the website inbox for active accounts. Successful public line requests also notify active administrators when the checked-by-default form option is selected. Email delivery is deferred.
+Guest mentions have a separate per-IP daily allowance: `GUEST_MENTIONS_PER_DAY=3`. Each distinct selected account in a comment or general thought uses one allowance; plain `@` text without a selected account does not. Reply and mention notifications appear in the website inbox for active accounts. Successful public line requests also notify active administrators when the checked-by-default form option is selected. Optional email delivery follows the same recipient rules; see [email notifications](EMAIL_NOTIFICATIONS_SPEC.md).
+
+### Email notifications
+
+Apply `003_email_notifications.sql` with `npm run db:migrate`. It adds email preferences, scoped verification/unsubscribe tokens, durable jobs and their workflow outbox, SNS receipts, address suppression, and a launch cutoff. Existing users are opted out. Historical notifications are not backfilled. Settings let signed-in users opt in, verify their mailbox, or request a password-protected email change. The original login address stays active until the replacement is verified; changing it revokes sessions. Opting out or changing addresses invalidates queued notifications.
+
+Configure `AWS_REGION`, `SES_FROM_EMAIL`, and the exact `SES_FEEDBACK_TOPIC_ARN`; use the AWS SDK credential chain and optional `SES_REPLY_TO_EMAIL`. Keep `EMAIL_NOTIFICATIONS_ENABLED=false` until the environment is ready. `APP_URL` supplies email links and must be HTTPS in production. Verification email is also gated by the sending switch. `EMAIL_TOKEN_SECRET` optionally separates link signing from the auth secret. Never expose these values through `NEXT_PUBLIC_` variables.
+
+Notification emails include the original reply/mention text or request details in escaped HTML and plain text. Apply `004_email_daily_limit.sql` for the per-account daily cap: `EMAIL_NOTIFICATIONS_PER_DAY=5` by default (positive integer; missing/invalid values use 5). The allowance resets at 00:00 UTC and applies across all notification categories, roles, and email-address changes. Verification messages retain their separate abuse limits. The last allowed notification includes a localized notice and a link that opens the website inbox, prompting login if needed. Further jobs are permanently skipped with `daily_email_limit`; website inbox items remain available and skipped emails are not replayed tomorrow.
+
+Daily slots are committed before SES submission and reused by retries of the same job that day. Reserved slots remain counted after a sending failure or uncertain outcome, so a failure can reduce the number actually received; this conservatively prevents duplicate/uncertain sends from exceeding the cap. Accounts rejected as inactive, unverified, opted out, or suppressed before reservation consume no slots. Migration 004 counts existing submitted/uncertain notifications and adds source content to pending jobs.
+
+Subscribe the development SNS topic to `https://<tunnel>/api/email/feedback` with raw delivery disabled. The handler verifies signatures and can confirm authenticated subscriptions. It remains active when sending is disabled. Configure SES identity bounce and complaint notifications to this topic. Verify AWS-side suppression and sender DNS separately with administrative credentials; the sender needs only narrowly scoped SES sending rights.
+
+Successful operations enqueue durable jobs and launch workflows after commit. The existing authenticated `/api/internal/repair` job repairs missed enqueues and abandoned launches. Its configured cron runs daily; normal sends launch immediately, but recovery during an outage may wait until the next repair run. For local email-only repair, run the exported `repairEmailJobs()` from `src/server/email/jobs.ts` in a script with the same environment and React server condition. Do not invoke the full repair endpoint solely for email testing: it also performs the existing GitHub synchronization.
+
+The administrator page shows recent delivery jobs, attempts, bounded error codes, SES IDs, and feedback. `submitted` means SES API acceptance, not inbox delivery. A `sending` job whose lease expires becomes `outcome_unknown`, never automatically resendable. Confirmed throttling/preparation failures retry up to five attempts with exponential backoff. Review failures using job/SES IDs and SNS delivery logs; HTTP 500/503 feedback responses should be retried by SNS. Rejected messages cannot mutate delivery records.
+
+Permanent bounces and complaints suppress the affected address independently of user preferences. Delivery, re-verification, and toggling preferences never clear suppression. Recovery is a manual operator procedure: verify the cause and mailbox owner's request, reconcile the SES suppression list with appropriate credentials, and only then remove that specific local suppression record. Unknown send outcomes require provider evidence before any operator-created replacement job; do not reset them to pending blindly.
+
+Local live acceptance uses only simulator recipients and a loopback development database:
+
+```bash
+EMAIL_SIMULATOR_TEST=true node --env-file=.env --env-file=.env.local \
+  --conditions=react-server --import tsx scripts/test-email-simulator.ts
+```
+
+This script sends through the application worker, waits for signed bounce/complaint feedback, checks SES-ID correlation and suppression, and proves later sends are skipped. It retains development fixtures as evidence. Use a fresh development database for repeat runs; it refuses to clear existing suppression or reuse simulator accounts. The tunnel and Next.js server must be running. No production verification bypass is installed, and these tests do not establish real-mailbox SPF/DKIM/DMARC or inbox placement.
+
+The following acceptance scripts create and remove isolated schemas on the local database and make no external sends:
+
+```bash
+node --env-file=.env --env-file=.env.local --conditions=react-server --import tsx scripts/test-email-accounts.ts
+node --env-file=.env --env-file=.env.local --conditions=react-server --import tsx scripts/test-email-jobs.ts
+node --env-file=.env --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-email-quota.ts
+```
+
+Run `npm run test:unit`, `npm run test:browser`, `npm run typecheck`, and `npm run build` for the full repository checks. On Node versions that report only file-level test counts, invoking each `tests/*.test.ts` directly with `node --experimental-test-module-mocks --conditions=react-server --import tsx <file>` exposes the individual assertion results.
 
 ### Project-local PostgreSQL
 

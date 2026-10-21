@@ -111,6 +111,8 @@ export function errorKey(error: unknown): MessageKey {
   if (/INVALID_BASE_FORMAT/.test(code)) return "baseFormatError";
   if (/BASE_REVISION_NOT_FOUND/.test(code)) return "baseNotFound";
   if (/UNAPPROVED_BASE_REVISION/.test(code)) return "baseUnapproved";
+  if (/EMAIL_SUPPRESSED/.test(code)) return "emailSuppressed";
+  if (/INVALID_LINK/.test(code)) return "emailInvalidLink";
   if (/ACCOUNT_EXISTS/.test(code)) return "accountExists";
   if (/REGISTERED_GAME_NAME/.test(code)) return "errorRegisteredName";
   if (/CANNOT_DISABLE_SELF/.test(code)) return "cannotDisableSelf";
@@ -250,6 +252,22 @@ export function SiteShell({
     unreadCount: number;
   }>(auth.data?.user ? "/api/notifications" : null);
   useEffect(() => {
+    if (auth.loading || !auth.data) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("notifications") !== "open") return;
+    if (!auth.data.user) {
+      router.replace(localeHref(locale, "/login?next=notifications"));
+      return;
+    }
+    setInboxOpen(true);
+    url.searchParams.delete("notifications");
+    window.history.replaceState(
+      {},
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [auth.loading, auth.data, locale, pathname, router]);
+  useEffect(() => {
     const newest = inbox.data?.notifications[0];
     if (!inboxOpen || !newest || !inbox.data?.unreadCount) return;
     let cancelled = false;
@@ -320,6 +338,11 @@ export function SiteShell({
                   href={localeHref(locale, "/updates")}
                 >
                   {m.updates}
+                </Link>
+              )}
+              {auth.data?.user && (
+                <Link href={localeHref(locale, "/settings")}>
+                  {m.emailSettings}
                 </Link>
               )}
               {auth.data?.user?.role === "admin" && (
@@ -449,6 +472,11 @@ export function SiteShell({
               >
                 {auth.data?.user ? m.updates : m.login}
               </Link>
+              {auth.data?.user && (
+                <Link href={localeHref(locale, "/settings")}>
+                  {m.emailSettings}
+                </Link>
+              )}
               {auth.data?.user?.role === "admin" && (
                 <Link href={localeHref(locale, "/admin")}>{m.admin}</Link>
               )}

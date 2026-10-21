@@ -672,6 +672,8 @@ export const internalRepair = route(async (request) => {
   )
     throw new PipelineError("unauthorized", 401);
   const repaired = await repairOutbox();
+  const { repairEmailJobs } = await import("@/server/email/jobs");
+  const email = await repairEmailJobs();
   const deletedUploads = await cleanupStaging();
   await pruneSecurityRecords();
   const operation = await acceptOperation({
@@ -682,7 +684,7 @@ export const internalRepair = route(async (request) => {
     authorize: async () => undefined,
   });
   await launchOperation(operation.id);
-  return json({ repaired, deletedUploads, operationId: operation.id });
+  return json({ repaired, email, deletedUploads, operationId: operation.id });
 });
 
 export const postWebhook = route(async (request) => {

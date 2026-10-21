@@ -3,7 +3,6 @@ import type { OperationView, OperationStatus } from "@/lib/contracts";
 import { query, transaction } from "@/server/db";
 import { sha256 } from "@/server/maps/validate";
 import { PipelineError } from "./errors";
-import { repositoryConfig } from "@/server/github/client";
 import type { PoolClient } from "pg";
 
 export interface Operation {
@@ -57,6 +56,7 @@ export async function acceptOperation(input: {
   reserve?: (client: PoolClient) => Promise<void>;
 }) {
   const digest = sha256(canonical(input.payload));
+  const { repositoryConfig } = await import("@/server/github/client");
   const repository = repositoryConfig();
   const checkExisting = (op: Operation) => {
     if (op.request_digest !== digest)
@@ -265,7 +265,28 @@ export async function finishOperation(
         status === "succeeded" || status === "published" ? "done" : "pending",
       ],
     );
+    if (status === "succeeded") {
+      // Email failures must not roll back a successful website operation. A repair
+      // scan recovers missed jobs; the savepoint isolates email persistence errors.
+      await client.query("SAVEPOINT email_enqueue");
+      try {
+        const { enqueueOperationEmails } = await import("@/server/email/jobs");
+        await enqueueOperationEmails(client, id);
+        await client.query("RELEASE SAVEPOINT email_enqueue");
+      } catch {
+        await client.query("ROLLBACK TO SAVEPOINT email_enqueue");
+        console.error("Email enqueue deferred", { operationId: id });
+      }
+    }
   });
+  if (status === "succeeded") {
+    try {
+      const { launchPendingEmailJobs } = await import("@/server/email/jobs");
+      await launchPendingEmailJobs();
+    } catch {
+      console.error("Email workflow launch deferred", { operationId: id });
+    }
+  }
 }
 
 export async function retryOperation(id: string, actorId: string) {
