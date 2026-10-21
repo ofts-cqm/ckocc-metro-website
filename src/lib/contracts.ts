@@ -13,11 +13,13 @@ export type Station = {
   z: number;
   dimension: string;
 };
+export type MentionSelection = { userId: string; start: number; end: number };
 export type GeneralRequest = {
   kind: "general";
   gameName: string;
   locale: Locale;
   comment: string;
+  mentions?: MentionSelection[];
 };
 export type LineRequest = {
   kind: "line-update";
@@ -27,6 +29,7 @@ export type LineRequest = {
   lineNumber: string | null;
   lineType: LineType;
   operation: "add" | "update";
+  notifyAdmins: boolean;
   stations: Station[];
   notes: string;
 };
@@ -35,6 +38,8 @@ export type CommentPayload = {
   gameName: string;
   locale: Locale;
   comment: string;
+  replyToCommentId?: number;
+  mentions?: MentionSelection[];
 };
 export type IssueSummary = {
   number: number;
@@ -60,7 +65,16 @@ export type IssueComment = {
   author: string;
   createdAt: string;
   updatedAt: string;
-  unverified: boolean;
+  nameVerification: "verified" | "unverified" | null;
+  replyToCommentId?: number;
+};
+export type NotificationItem = {
+  id: string;
+  kind: "reply" | "mention" | "line-add" | "line-update";
+  sender: string;
+  issueNumber: number;
+  createdAt: string;
+  read: boolean;
 };
 export type PublishedMap = {
   revision: string;

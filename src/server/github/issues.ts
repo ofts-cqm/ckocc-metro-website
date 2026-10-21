@@ -114,6 +114,29 @@ export async function assertEligibleIssue(
   return issue;
 }
 
+export async function assertReplyTarget(number: number, commentId: number) {
+  const issue = await assertEligibleIssue(number, true);
+  if (!Number.isSafeInteger(commentId) || commentId < 1)
+    throw new PipelineError("reply_target_not_found", 404);
+  const client = await github();
+  const { owner, repo } = repositoryConfig();
+  try {
+    const comment = (
+      await client.rest.issues.getComment({
+        owner,
+        repo,
+        comment_id: commentId,
+      })
+    ).data;
+    if (comment.issue_url !== issue.url)
+      throw new PipelineError("reply_target_not_found", 404);
+  } catch (error) {
+    if ((error as { status?: number }).status === 404)
+      throw new PipelineError("reply_target_not_found", 404);
+    throw error;
+  }
+}
+
 export async function listIssues(
   page: number,
   state: "open" | "closed",
@@ -164,7 +187,7 @@ export async function issueDetail(number: number): Promise<IssueDetail> {
 }
 
 export async function issueComments(number: number, page: number) {
-  await assertEligibleIssue(number);
+  const issue = await assertEligibleIssue(number);
   const result = await cached(`comments:${number}:${page}`, async () => {
     const client = await github();
     const { owner, repo } = repositoryConfig();
@@ -190,6 +213,8 @@ export async function issueComments(number: number, page: number) {
             gameName: op.payload.gameName,
             comment: op.payload.comment,
             locale: op.payload.locale,
+            replyToCommentId: op.payload.replyToCommentId,
+            mentions: op.payload.mentions,
           }
         : {},
     );
@@ -199,15 +224,25 @@ export async function issueComments(number: number, page: number) {
       op.result.commentId === c.id &&
       op.payload.issueNumber === number &&
       parsed.success &&
-      commentTemplate(parsed.data, op.id) === c.body;
+      (commentTemplate(parsed.data, op.id, !!op.actor_id, issue.html_url) ===
+        c.body ||
+        (!!op.actor_id &&
+          commentTemplate(parsed.data, op.id, false, issue.html_url) ===
+            c.body));
+    const verified = !!trusted && !!op?.actor_id;
     return {
       id: c.id,
-      body: c.body || "",
+      body:
+        verified && parsed.success && op
+          ? commentTemplate(parsed.data, op.id, true, issue.html_url)
+          : c.body || "",
       gameName: trusted && parsed.success ? parsed.data.gameName : null,
       author: c.user?.login || "GitHub",
       createdAt: c.created_at,
       updatedAt: c.updated_at,
-      unverified: !!trusted,
+      nameVerification: trusted ? (verified ? "verified" : "unverified") : null,
+      replyToCommentId:
+        trusted && parsed.success ? parsed.data.replyToCommentId : undefined,
     };
   });
   return { comments, page, hasMore: result.hasMore };

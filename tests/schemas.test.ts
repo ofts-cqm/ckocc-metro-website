@@ -158,6 +158,48 @@ test("line identifiers remain optional text, including noninteger identifiers an
   );
 });
 
+test("line notification preference defaults on and accepts only booleans", () => {
+  assert.equal(lineRequestSchema.parse(line).notifyAdmins, true);
+  assert.equal(
+    lineRequestSchema.parse({ ...line, notifyAdmins: false }).notifyAdmins,
+    false,
+  );
+  assert.equal(
+    lineRequestSchema.safeParse({ ...line, notifyAdmins: "false" }).success,
+    false,
+  );
+  assert.equal(
+    generalRequestSchema.safeParse({ ...general, notifyAdmins: true }).success,
+    false,
+  );
+});
+
+test("general thoughts accept selected account mentions with bounded offsets", () => {
+  const mentioned = {
+    ...general,
+    comment: "Hello @Alice Player",
+    mentions: [{ userId: "alice", start: 6, end: 19 }],
+  };
+  assert.deepEqual(
+    generalRequestSchema.parse(mentioned).mentions,
+    mentioned.mentions,
+  );
+  assert.equal(
+    generalRequestSchema.safeParse({
+      ...mentioned,
+      mentions: [{ userId: "alice", start: -1, end: 19 }],
+    }).success,
+    false,
+  );
+  assert.equal(
+    generalRequestSchema.safeParse({
+      ...mentioned,
+      mentions: [{ ...mentioned.mentions[0], role: "admin" }],
+    }).success,
+    false,
+  );
+});
+
 test("only supported locales and request types are accepted", () => {
   for (const locale of ["en-US", "zh-CN", "zh-HK"]) {
     assert.equal(requestSchema.safeParse({ ...general, locale }).success, true);

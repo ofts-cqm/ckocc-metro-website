@@ -52,9 +52,17 @@ export function requestTemplate(payload: RequestPayload, id: string) {
     ],
   };
 }
-export function commentTemplate(payload: CommentPayload, id: string) {
+export function commentTemplate(
+  payload: CommentPayload,
+  id: string,
+  verified = false,
+  issueUrl?: string,
+) {
+  const reply = payload.replyToCommentId
+    ? `In reply to [comment #${payload.replyToCommentId}](${issueUrl || ""}#issuecomment-${payload.replyToCommentId})\n\n`
+    : "";
   return bounded(
-    `Submitted in-game name (unverified): ${plainText(payload.gameName)}\n\nLocale: ${payload.locale}\n\n${plainText(payload.comment)}\n\n${marker(id)}`,
+    `Submitted in-game name (${verified ? "verified" : "unverified"}): ${plainText(payload.gameName)}\n\nLocale: ${payload.locale}\n\n${reply}${plainText(payload.comment)}\n\n${marker(id)}`,
   );
 }
 export function pullRequestTemplate(manifest: MapManifest, details: string) {

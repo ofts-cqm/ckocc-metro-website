@@ -34,6 +34,7 @@ import {
   issueDetail,
   issueComments,
   assertEligibleIssue,
+  assertReplyTarget,
 } from "@/server/github/issues";
 import { requestTemplate, commentTemplate } from "@/server/github/templates";
 import {
@@ -77,6 +78,7 @@ import {
 import { launchOperation, repairOutbox } from "./outbox";
 import { PipelineError, safeErrorCode } from "./errors";
 import type { UpdateInput } from "./update";
+import { resolveMentions, reserveGuestMentions } from "./mentions";
 
 export const route =
   (
@@ -120,6 +122,14 @@ const issueNumber = async (
     .int()
     .positive()
     .parse(await param(context, "number"));
+
+async function assertGuestNameAvailable(gameName: string) {
+  const registered = await query(
+    'SELECT 1 FROM "user" WHERE lower(btrim(name)) = lower($1) LIMIT 1',
+    [gameName],
+  );
+  if (registered.rowCount) throw new PipelineError("registered_game_name", 409);
+}
 
 async function queueReadReconciliation() {
   const recent = await query(
@@ -223,6 +233,10 @@ export const postRequest = route(async (request) => {
     user ? { ...input.payload, gameName: user.name } : input.payload,
   );
   requestTemplate(payload, "00000000-0000-0000-0000-000000000000");
+  const mentionCount =
+    payload.kind === "general"
+      ? new Set(payload.mentions?.map((mention) => mention.userId)).size
+      : 0;
   const operation = await acceptOperation({
     kind: "request",
     scope: user ? `user:${user.id}:request` : "public:request",
@@ -230,13 +244,20 @@ export const postRequest = route(async (request) => {
     key: input.key,
     receiptToken: input.receiptToken,
     payload,
-    authorize: () =>
-      requireAnonymousWrite(
+    authorize: async () => {
+      if (!user) await assertGuestNameAvailable(payload.gameName);
+      if (payload.kind === "general") await resolveMentions(payload);
+      await requireAnonymousWrite(
         request,
         "request",
         input.challengeToken,
         input.key,
-      ),
+      );
+    },
+    reserve:
+      !user && mentionCount
+        ? (client) => reserveGuestMentions(client, request, mentionCount)
+        : undefined,
   });
   await launchOperation(operation.id);
   return json(
@@ -274,7 +295,15 @@ export const postComment = route(async (request, context) => {
   const payload = commentSchema.parse(
     user ? { ...input.payload, gameName: user.name } : input.payload,
   );
-  commentTemplate(payload, "00000000-0000-0000-0000-000000000000");
+  commentTemplate(
+    payload,
+    "00000000-0000-0000-0000-000000000000",
+    !!user,
+    `https://github.com/${repositoryConfig().owner}/${repositoryConfig().repo}/issues/${number}`,
+  );
+  const mentionCount = new Set(
+    payload.mentions?.map((mention) => mention.userId),
+  ).size;
   const operation = await acceptOperation({
     kind: "comment",
     scope: user
@@ -285,6 +314,8 @@ export const postComment = route(async (request, context) => {
     receiptToken: input.receiptToken,
     payload: { ...payload, issueNumber: number },
     authorize: async () => {
+      if (!user) await assertGuestNameAvailable(payload.gameName);
+      await resolveMentions(payload);
       await requireAnonymousWrite(
         request,
         "comment",
@@ -292,7 +323,13 @@ export const postComment = route(async (request, context) => {
         input.key,
       );
       await assertEligibleIssue(number, true);
+      if (payload.replyToCommentId)
+        await assertReplyTarget(number, payload.replyToCommentId);
     },
+    reserve:
+      !user && mentionCount
+        ? (client) => reserveGuestMentions(client, request, mentionCount)
+        : undefined,
   });
   await launchOperation(operation.id);
   return json(

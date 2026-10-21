@@ -4,6 +4,7 @@ import { query, transaction } from "@/server/db";
 import { sha256 } from "@/server/maps/validate";
 import { PipelineError } from "./errors";
 import { repositoryConfig } from "@/server/github/client";
+import type { PoolClient } from "pg";
 
 export interface Operation {
   id: string;
@@ -53,6 +54,7 @@ export async function acceptOperation(input: {
   receiptToken?: string;
   payload: Record<string, unknown>;
   authorize: () => Promise<void>;
+  reserve?: (client: PoolClient) => Promise<void>;
 }) {
   const digest = sha256(canonical(input.payload));
   const repository = repositoryConfig();
@@ -143,6 +145,7 @@ export async function acceptOperation(input: {
       )
         throw new PipelineError("invalid_upload");
     }
+    await input.reserve?.(client);
     const result = await client.query<Operation>(
       `INSERT INTO metro_operations(id,kind,scope,idempotency_key,request_digest,actor_id,receipt_digest,status,payload,checkpoint)
       VALUES($1,$2,$3,$4,$5,$6,$7,'accepted',$8,$9) RETURNING *`,

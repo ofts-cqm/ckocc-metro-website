@@ -38,6 +38,19 @@ async function mockApi(page: Page, user: SessionUser | null, state = "open") {
     const path = new URL(request.url()).pathname;
     if (path === "/api/auth/session") {
       await route.fulfill({ json: { user } });
+    } else if (path === "/api/mentions") {
+      const search = new URL(request.url()).searchParams.get("q")?.trim();
+      await route.fulfill({
+        json: {
+          suggestions:
+            search && "alice player".startsWith(search.toLowerCase())
+              ? [{ id: "alice", name: "Alice Player", role: "collaborator" }]
+              : [],
+          remaining: user ? null : 3,
+        },
+      });
+    } else if (path === "/api/notifications") {
+      await route.fulfill({ json: { notifications: [], unreadCount: 0 } });
     } else if (path === "/api/requests" && request.method() === "POST") {
       submissions.push(request.postDataJSON());
       await route.fulfill({
@@ -89,6 +102,28 @@ async function mockApi(page: Page, user: SessionUser | null, state = "open") {
   return { submissions, closeKeys, behavior };
 }
 
+test("a guest can mention a signed-in user in a general thought", async ({
+  page,
+}) => {
+  const { submissions } = await mockApi(page, null);
+  await page.goto("/en-us/requests/new");
+  await page.getByRole("textbox", { name: /^In-game name/ }).fill("Visitor");
+  const message = page.locator(".request-form textarea[name=comment]");
+  await message.fill("Hello @Nobody");
+  await expect(page.getByText("User not found")).toBeVisible();
+  await message.fill("Hello @Ali");
+  await page.getByRole("option", { name: /Alice Player/ }).click();
+  await expect(message).toHaveValue("Hello @Alice Player");
+  await expect(page.getByText("User not found")).toHaveCount(0);
+  await page.getByRole("button", { name: "Submit request" }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({
+    kind: "general",
+    comment: "Hello @Alice Player",
+    mentions: [{ userId: "alice", start: 6, end: 19 }],
+  });
+});
+
 for (const role of ["collaborator", "admin"] as const) {
   test(`${role} sees an immutable account name in both request forms`, async ({
     page,
@@ -133,6 +168,11 @@ for (const role of ["collaborator", "admin"] as const) {
     expect(submissions[0].gameName).toBe("AccountPlayer");
     await page.getByRole("button", { name: "Submit another request" }).click();
     await page.getByRole("radio").nth(1).check();
+    const notifyAdmins = page.getByRole("checkbox", {
+      name: "Notify administrators about this line request",
+    });
+    await expect(notifyAdmins).toBeChecked();
+    if (role === "admin") await notifyAdmins.uncheck();
     await expect(name).toHaveValue("AccountPlayer");
     await expect(name).toBeDisabled();
     await page
@@ -149,6 +189,7 @@ for (const role of ["collaborator", "admin"] as const) {
     expect(submissions[1]).toMatchObject({
       kind: "line-update",
       gameName: "AccountPlayer",
+      notifyAdmins: role !== "admin",
     });
   });
 

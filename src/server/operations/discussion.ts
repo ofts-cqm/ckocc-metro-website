@@ -4,7 +4,11 @@ import {
   repositoryConfig,
   expectedBotLogin,
 } from "@/server/github/client";
-import { assertEligibleIssue, invalidateIssues } from "@/server/github/issues";
+import {
+  assertEligibleIssue,
+  assertReplyTarget,
+  invalidateIssues,
+} from "@/server/github/issues";
 import {
   requestTemplate,
   commentTemplate,
@@ -15,12 +19,15 @@ import { PipelineError } from "./errors";
 
 async function recoverDiscussion(
   op: Operation,
-  expectedBody: string,
+  expectedBody: string | string[],
   issueNumber?: number,
 ) {
   const client = await github();
   const { owner, repo } = repositoryConfig();
   const bot = expectedBotLogin();
+  const expectedBodies = Array.isArray(expectedBody)
+    ? expectedBody
+    : [expectedBody];
   const matches: { number?: number; commentId?: number; url: string }[] = [];
   const deadline = Date.now() + 60_000;
   let complete = false;
@@ -39,8 +46,8 @@ async function recoverDiscussion(
       for (const c of response.data)
         if (
           c.user?.login === bot &&
-          c.body === expectedBody &&
-          c.body.includes(marker(op.id))
+          expectedBodies.includes(c.body || "") &&
+          c.body?.includes(marker(op.id))
         )
           matches.push({
             number: issueNumber,
@@ -69,8 +76,8 @@ async function recoverDiscussion(
         if (
           !issue.pull_request &&
           issue.user?.login === bot &&
-          issue.body === expectedBody &&
-          issue.body.includes(marker(op.id))
+          expectedBodies.includes(issue.body || "") &&
+          issue.body?.includes(marker(op.id))
         )
           matches.push({ number: issue.number, url: issue.html_url });
       if (!/rel="next"/.test(response.headers.link || "")) {
@@ -109,12 +116,34 @@ export async function processDiscussion(op: Operation, token: string) {
     return value;
   }
   const issueNumber = Number(op.payload.issueNumber);
-  const body = commentTemplate(op.payload as unknown as CommentPayload, op.id);
+  const issueUrl = `https://github.com/${owner}/${repo}/issues/${issueNumber}`;
+  const body = commentTemplate(
+    op.payload as unknown as CommentPayload,
+    op.id,
+    !!op.actor_id,
+    issueUrl,
+  );
   if (op.checkpoint.discussionResult)
     return op.checkpoint.discussionResult as Record<string, unknown>;
   if (op.checkpoint.writeIntent)
-    return recoverDiscussion(op, body, issueNumber);
+    return recoverDiscussion(
+      op,
+      op.actor_id
+        ? [
+            body,
+            commentTemplate(
+              op.payload as unknown as CommentPayload,
+              op.id,
+              false,
+              issueUrl,
+            ),
+          ]
+        : body,
+      issueNumber,
+    );
   await assertEligibleIssue(issueNumber, true);
+  if (op.payload.replyToCommentId)
+    await assertReplyTarget(issueNumber, Number(op.payload.replyToCommentId));
   await checkpoint(op.id, token, { writeIntent: true });
   const result = await client.rest.issues.createComment({
     owner,

@@ -25,6 +25,8 @@ async function setup(
           },
         },
       });
+    if (path === "/api/notifications")
+      return route.fulfill({ json: { notifications: [], unreadCount: 0 } });
     if (path === "/api/map/head")
       return route.fulfill({ json: { revision, commitSha: baseCommit } });
     if (path === "/api/updates")

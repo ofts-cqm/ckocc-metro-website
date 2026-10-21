@@ -37,6 +37,36 @@ test("public templates neutralize raw mentions, HTML, Markdown and forged operat
   assert.deepEqual(issue.labels, ["metro-request", "type:general"]);
 });
 
+test("comment templates identify signed-in authors while guest names stay unverified", () => {
+  const payload = {
+    gameName: "Player",
+    comment: "Hello",
+    locale: "en-US",
+  } as const;
+  assert.match(commentTemplate(payload, id), /name \(unverified\): Player/);
+  assert.match(commentTemplate(payload, id, true), /name \(verified\): Player/);
+});
+
+test("reply templates link to the parent without emitting a GitHub mention", () => {
+  const body = commentTemplate(
+    {
+      gameName: "Visitor",
+      locale: "en-US",
+      comment: "Hello @Alice",
+      replyToCommentId: 88,
+    },
+    id,
+    false,
+    "https://github.com/test/map/issues/42",
+  );
+  assert.match(
+    body,
+    /https:\/\/github.com\/test\/map\/issues\/42#issuecomment-88/,
+  );
+  assert.ok(!body.includes("Hello @Alice"));
+  assert.match(body, /Hello &#64;Alice/);
+});
+
 test("only explicit selected issues create raw closing directives in a PR", () => {
   const hash = "a".repeat(64);
   const manifest: MapManifest = {

@@ -47,8 +47,25 @@ export const stationSchema = z
   })
   .strict();
 const common = { gameName: singleLine(64), locale: localeSchema };
+const mentionsSchema = z
+  .array(
+    z
+      .object({
+        userId: z.string().min(1).max(128),
+        start: z.number().int().min(0).refine(Number.isSafeInteger),
+        end: z.number().int().positive().refine(Number.isSafeInteger),
+      })
+      .strict(),
+  )
+  .max(20)
+  .optional();
 export const generalRequestSchema = z
-  .object({ ...common, kind: z.literal("general"), comment: safeText(5000) })
+  .object({
+    ...common,
+    kind: z.literal("general"),
+    comment: safeText(5000),
+    mentions: mentionsSchema,
+  })
   .strict();
 export const lineRequestSchema = z
   .object({
@@ -58,6 +75,7 @@ export const lineRequestSchema = z
     lineNumber: optionalText(32),
     lineType: lineTypeSchema,
     operation: z.enum(["add", "update"]),
+    notifyAdmins: z.boolean().default(true),
     stations: z.array(stationSchema).min(1).max(200),
     notes: safeText(5000, false).default(""),
   })
@@ -67,7 +85,17 @@ export const requestSchema = z.discriminatedUnion("kind", [
   lineRequestSchema,
 ]);
 export const commentSchema = z
-  .object({ ...common, comment: safeText(5000) })
+  .object({
+    ...common,
+    comment: safeText(5000),
+    replyToCommentId: z
+      .number()
+      .int()
+      .positive()
+      .refine(Number.isSafeInteger)
+      .optional(),
+    mentions: mentionsSchema,
+  })
   .strict();
 export const updateSchema = z
   .object({
