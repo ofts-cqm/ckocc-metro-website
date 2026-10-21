@@ -15,6 +15,38 @@ export function isLocale(value: string): value is Locale {
 }
 
 const en = {
+  emailSettings: "Email settings",
+  emailSettingsIntro: "Manage your address and optional email notifications.",
+  emailVerified: "Address verified",
+  emailUnverified:
+    "Address not verified. Verify it before receiving notifications.",
+  emailSuppressed:
+    "Delivery to this address is suppressed after a bounce or complaint. Contact an administrator to review it.",
+  emailPending:
+    "Verification pending for {address}. Your current sign-in address stays active until confirmation.",
+  emailSendVerification: "Send verification email",
+  emailNotifications: "Email notifications",
+  emailNotificationsHint:
+    "Replies, mentions, and administrator line-request alerts. Delivery requires a verified address.",
+  emailOptIn: "Send me email notifications",
+  emailChange: "Change email address",
+  emailChangeHint:
+    "Confirm your password. Your replacement address becomes your sign-in address after verification, and all sessions will be signed out.",
+  emailNewAddress: "New email address",
+  emailVerificationQueued:
+    "Verification email queued. Check your mailbox; the link expires in one hour.",
+  emailPreferencesSaved: "Email preferences saved.",
+  emailUnsubscribe: "Disable email notifications",
+  emailUnsubscribeIntro:
+    "Confirm to disable notification emails for this address. Your website inbox remains available.",
+  emailConfirm: "Confirm email address",
+  emailConfirmIntro:
+    "Confirm to verify this address. Opening this page does not change your account.",
+  emailUnsubscribed: "Email notifications disabled.",
+  emailChanged: "Email address changed. Sign in with your new address.",
+  emailConfirmed: "Email address verified.",
+  emailInvalidLink: "This email link is invalid, expired, or already used.",
+
   brand: "CKOCC Metro",
   brandSub: "Built together. Connected together.",
   map: "Network map",
@@ -430,6 +462,32 @@ export type MessageKey = keyof typeof en;
 export type Messages = { [K in MessageKey]: string };
 
 const cn: Messages = {
+  emailSettings: "邮件设置",
+  emailSettingsIntro: "管理邮箱地址和可选的邮件通知。",
+  emailVerified: "邮箱已验证",
+  emailUnverified: "邮箱尚未验证。验证后才能接收通知。",
+  emailSuppressed: "此邮箱因退信或投诉已暂停投递，请联系管理员审核。",
+  emailPending: "正在等待验证 {address}。确认前仍使用当前邮箱登录。",
+  emailSendVerification: "发送验证邮件",
+  emailNotifications: "邮件通知",
+  emailNotificationsHint:
+    "回复、提及以及管理员线路请求提醒。邮箱验证后才会投递。",
+  emailOptIn: "向我发送邮件通知",
+  emailChange: "更换邮箱",
+  emailChangeHint:
+    "请输入当前密码。新邮箱验证后将成为登录邮箱，所有会话都会退出登录。",
+  emailNewAddress: "新邮箱地址",
+  emailVerificationQueued: "验证邮件已加入队列，请查收。链接一小时内有效。",
+  emailPreferencesSaved: "邮件偏好已保存。",
+  emailUnsubscribe: "关闭邮件通知",
+  emailUnsubscribeIntro: "确认关闭此邮箱的通知邮件。网站收件箱仍可使用。",
+  emailConfirm: "确认邮箱地址",
+  emailConfirmIntro: "确认以验证此邮箱。仅打开此页面不会更改账户。",
+  emailUnsubscribed: "邮件通知已关闭。",
+  emailChanged: "邮箱已更换，请使用新邮箱登录。",
+  emailConfirmed: "邮箱已验证。",
+  emailInvalidLink: "此邮件链接无效、已过期或已被使用。",
+
   brand: "可可西里地铁",
   brandSub: "共同建设，一路相连。",
   map: "线路图",
@@ -800,6 +858,32 @@ const cn: Messages = {
 };
 
 const hk: Messages = {
+  emailSettings: "郵件設定",
+  emailSettingsIntro: "管理電郵地址和可選的郵件通知。",
+  emailVerified: "電郵已驗證",
+  emailUnverified: "電郵尚未驗證。驗證後才能接收通知。",
+  emailSuppressed: "此電郵因退信或投訴已暫停投遞，請聯絡管理員審核。",
+  emailPending: "正在等待驗證 {address}。確認前仍使用目前的電郵登入。",
+  emailSendVerification: "傳送驗證郵件",
+  emailNotifications: "郵件通知",
+  emailNotificationsHint:
+    "回覆、提及以及管理員路線請求提醒。電郵驗證後才會投遞。",
+  emailOptIn: "向我傳送郵件通知",
+  emailChange: "更換電郵",
+  emailChangeHint:
+    "請輸入目前的密碼。新電郵驗證後將成為登入電郵，所有工作階段都會登出。",
+  emailNewAddress: "新電郵地址",
+  emailVerificationQueued: "驗證郵件已加入佇列，請查收。連結一小時內有效。",
+  emailPreferencesSaved: "郵件偏好已儲存。",
+  emailUnsubscribe: "關閉郵件通知",
+  emailUnsubscribeIntro: "確認關閉此電郵的通知郵件。網站收件箱仍可使用。",
+  emailConfirm: "確認電郵地址",
+  emailConfirmIntro: "確認以驗證此電郵。僅開啟此頁面不會更改帳戶。",
+  emailUnsubscribed: "郵件通知已關閉。",
+  emailChanged: "電郵已更換，請使用新電郵登入。",
+  emailConfirmed: "電郵已驗證。",
+  emailInvalidLink: "此郵件連結無效、已過期或已被使用。",
+
   brand: "可可西里地鐵",
   brandSub: "一同建設，連繫每一站。",
   map: "路綫圖",

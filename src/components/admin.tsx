@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { AdminEmail } from "./admin-email";
 import {
   Check,
   Copy,
@@ -475,6 +476,7 @@ function AdminWorkspace() {
           <EmptyState title={m.noFailedOperations} />
         )}
       </section>
+      <AdminEmail />
     </>
   );
 }

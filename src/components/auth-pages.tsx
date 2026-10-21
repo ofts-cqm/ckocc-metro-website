@@ -54,12 +54,18 @@ export function LoginPage() {
       auth.refresh();
       const next = params.get("next");
       const destination =
-        next === "admin"
-          ? localeHref(locale, "/admin")
-          : next &&
-              /^\/(en-us|zh-cn|zh-hk)\/(updates|admin)(?:\?.*)?$/.test(next)
-            ? next.replace(/^\/(en-us|zh-cn|zh-hk)/, `/${locale}`)
-            : localeHref(locale, "/updates");
+        next === "notifications"
+          ? localeHref(locale, "?notifications=open")
+          : next === "settings"
+            ? localeHref(locale, "/settings")
+            : next === "admin"
+              ? localeHref(locale, "/admin")
+              : next &&
+                  /^\/(en-us|zh-cn|zh-hk)\/(updates|admin|settings)(?:\?.*)?$/.test(
+                    next,
+                  )
+                ? next.replace(/^\/(en-us|zh-cn|zh-hk)/, `/${locale}`)
+                : localeHref(locale, "/updates");
       router.push(destination);
       router.refresh();
     } catch (e) {
@@ -152,8 +158,9 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  const isReset = reset || invitation.data?.invitation.kind === "reset";
+  const [done, setDone] = useState<"invite" | "reset" | null>(null);
+  const isReset =
+    reset || done === "reset" || invitation.data?.invitation.kind === "reset";
   useEffect(() => {
     // Keep invitation URLs out of the browser's referrer on external navigation.
     const existing = document.querySelector('meta[name="referrer"]');
@@ -182,7 +189,7 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
       });
       setPassword("");
       setConfirmation("");
-      setDone(true);
+      setDone(isReset ? "reset" : "invite");
       window.history.replaceState(
         {},
         "",
@@ -211,7 +218,10 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
             <h2>{m.accountReady}</h2>
             <Link
               className="button button-primary"
-              href={localeHref(locale, "/login")}
+              href={localeHref(
+                locale,
+                done === "invite" ? "/login?next=settings" : "/login",
+              )}
             >
               {m.signIn}
               <ArrowRight size={16} />

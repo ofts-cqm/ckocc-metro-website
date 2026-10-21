@@ -3,21 +3,35 @@ import { query } from "@/server/db";
 import type { NotificationItem } from "@/lib/contracts";
 import { PipelineError } from "./errors";
 
-const recipientWhere = `o.status='succeeded' AND (
+export function notificationRecipientWhere(user = "$1") {
+  return `o.status='succeeded' AND (
   ((o.kind='comment' OR (o.kind='request' AND o.payload->>'kind'='general')) AND
-   o.payload->'mentions' @> jsonb_build_array(jsonb_build_object('userId',$1::text)))
+   o.payload->'mentions' @> jsonb_build_array(jsonb_build_object('userId',${user}::text)))
   OR (o.kind='comment' AND EXISTS (SELECT 1 FROM metro_operations parent
            WHERE parent.kind='comment' AND parent.status='succeeded'
-             AND parent.actor_id=$1
+             AND parent.actor_id=${user}
              AND parent.result->>'commentId'=o.payload->>'replyToCommentId'
              AND parent.payload->>'issueNumber'=o.payload->>'issueNumber'
              AND parent.checkpoint->>'repository'=o.checkpoint->>'repository'))
   OR (o.kind='request' AND o.payload->>'kind'='line-update'
       AND o.payload->>'notifyAdmins'='true'
       AND EXISTS (SELECT 1 FROM metro_profiles profile
-                  WHERE profile.user_id=$1 AND profile.role='admin' AND profile.active))
+                  WHERE profile.user_id=${user} AND profile.role='admin' AND profile.active))
   ) AND
-  (o.actor_id IS NULL OR o.actor_id<>$1)`;
+  (o.actor_id IS NULL OR o.actor_id<>${user})`;
+}
+
+export function notificationKindSql(user = "$1") {
+  return `CASE WHEN o.kind='request' AND o.payload->>'kind'='line-update'
+                   AND o.payload->>'operation'='add' THEN 'line-add'
+         WHEN o.kind='request' AND o.payload->>'kind'='line-update' THEN 'line-update'
+         WHEN EXISTS (SELECT 1 FROM metro_operations parent
+         WHERE parent.kind='comment' AND parent.status='succeeded'
+           AND parent.actor_id=${user} AND parent.result->>'commentId'=o.payload->>'replyToCommentId'
+           AND parent.payload->>'issueNumber'=o.payload->>'issueNumber'
+           AND parent.checkpoint->>'repository'=o.checkpoint->>'repository')
+         THEN 'reply' ELSE 'mention' END`;
+}
 
 // Successful operations are durable inbox events, without a second delivery table.
 export async function listNotifications(userId: string) {
@@ -31,27 +45,19 @@ export async function listNotifications(userId: string) {
   const values = [userId, through];
   const items = await query<NotificationItem>(
     `SELECT o.id::text AS id,
-       CASE WHEN o.kind='request' AND o.payload->>'kind'='line-update'
-                   AND o.payload->>'operation'='add' THEN 'line-add'
-         WHEN o.kind='request' AND o.payload->>'kind'='line-update' THEN 'line-update'
-         WHEN EXISTS (SELECT 1 FROM metro_operations parent
-         WHERE parent.kind='comment' AND parent.status='succeeded'
-           AND parent.actor_id=$1 AND parent.result->>'commentId'=o.payload->>'replyToCommentId'
-           AND parent.payload->>'issueNumber'=o.payload->>'issueNumber'
-           AND parent.checkpoint->>'repository'=o.checkpoint->>'repository')
-         THEN 'reply' ELSE 'mention' END AS kind,
+       ${notificationKindSql()} AS kind,
        o.payload->>'gameName' AS sender,
        CASE WHEN o.kind='request' THEN (o.result->>'number')::integer
          ELSE (o.payload->>'issueNumber')::integer END AS "issueNumber",
        o.updated_at AS "createdAt", (o.updated_at <= $2::timestamptz) AS read
      FROM metro_operations o
-     WHERE ${recipientWhere}
+     WHERE ${notificationRecipientWhere()}
      ORDER BY o.updated_at DESC,o.id DESC LIMIT 50`,
     values,
   );
   const count = await query<{ unread: string }>(
     `SELECT count(*)::text AS unread FROM metro_operations o
-     WHERE ${recipientWhere} AND ($2::timestamptz IS NULL OR o.updated_at>$2::timestamptz)`,
+     WHERE ${notificationRecipientWhere()} AND ($2::timestamptz IS NULL OR o.updated_at>$2::timestamptz)`,
     values,
   );
   return {
