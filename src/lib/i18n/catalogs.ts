@@ -77,7 +77,8 @@ const en = {
   external: "opens in a new tab",
   eyebrow: "THE CKOCC TRANSIT NETWORK",
   heroTitle: "Every line connects us.",
-  heroBody: "Find your way across the server. Help shape where we go next.",
+  heroBody:
+    "CKOCC is a Minecraft SMP server. Since 2024, our Ministry of Railways has built over 30 metro lines spanning around 100 km. This is our home for managing requests and sharing comments on the server’s metro system.",
   submitUpdate: "Submit Update",
   submitRequest: "Submit Request",
   liveMap: "Published network",
@@ -517,7 +518,8 @@ const cn: Messages = {
   external: "在新标签页打开",
   eyebrow: "可可西里 · 轨道交通网络",
   heroTitle: "每条线路，都将我们相连。",
-  heroBody: "探索服务器的每个角落，一起决定下一站的方向。",
+  heroBody:
+    "CKOCC（可可西里）是一个 Minecraft 生存多人服务器。自 2024 年起，我们的铁道部已建成 30 多条地铁线路，总长约 100 公里。这里是铁道部的主页，用于管理服务器地铁系统的相关请求和意见。",
   submitUpdate: "提交更新",
   submitRequest: "提交请求",
   liveMap: "已发布线路图",
@@ -912,7 +914,8 @@ const hk: Messages = {
   external: "在新分頁開啟",
   eyebrow: "可可西里 · 鐵路網絡",
   heroTitle: "每條路綫，連繫你我。",
-  heroBody: "探索伺服器每個角落，一起決定下一站的方向。",
+  heroBody:
+    "CKOCC（可可西里）是一個 Minecraft 多人生存伺服器。自 2024 年起，我們的鐵道部已建成 30 多條地鐵路綫，總長約 100 公里。這裏是鐵道部的主頁，用於管理伺服器地鐵系統的相關請求和意見。",
   submitUpdate: "提交更新",
   submitRequest: "提交請求",
   liveMap: "已發佈路綫圖",
