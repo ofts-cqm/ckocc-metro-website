@@ -43,8 +43,12 @@ export async function reserveUpload(
       "SELECT pg_advisory_xact_lock(hashtext('staging-quota'))",
     );
     const total = await client.query<{ total: string; own: string }>(
-      `SELECT COALESCE(sum(reserved_bytes),0)::text AS total,
-      COALESCE(sum(reserved_bytes) FILTER(WHERE owner_id=$1),0)::text AS own FROM metro_uploads WHERE status<>'deleted'`,
+      // Ready sizes come from trusted Blob metadata. Unfinished uploads keep
+      // their full reservation because their upload token can still be used.
+      `SELECT COALESCE(sum(charged_bytes),0)::text AS total,
+      COALESCE(sum(charged_bytes) FILTER(WHERE owner_id=$1),0)::text AS own
+      FROM (SELECT owner_id, CASE WHEN status='ready' THEN COALESCE(size,reserved_bytes)
+        ELSE reserved_bytes END AS charged_bytes FROM metro_uploads WHERE status<>'deleted') uploads`,
       [user.id],
     );
     if (

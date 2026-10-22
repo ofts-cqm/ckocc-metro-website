@@ -95,6 +95,7 @@ function UpdatesWorkspace() {
   const [baseCommit, setBaseCommit] = useState("");
   const [uploading, setUploading] = useState<"json" | "png" | null>(null);
   const uploadInFlight = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = useState<"json" | "png" | null>(null);
   const dragDepth = useRef({ json: 0, png: 0 });
   const [percent, setPercent] = useState(0);
@@ -152,6 +153,10 @@ function UpdatesWorkspace() {
   const hasFiles = Boolean(
     draft.session?.assets?.json && draft.session?.assets?.png,
   );
+  useEffect(() => {
+    if (recovered)
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [recovered, draft.session?.id]);
   const receipt: Receipt | null = draft.submittedOperation
     ? { id: draft.submittedOperation }
     : null;
@@ -162,6 +167,7 @@ function UpdatesWorkspace() {
     }
     setBusy(true);
     setError(null);
+    setRecovered(false);
     try {
       const value = await api<{ editSession: EditSession }>(
         "/api/edit-sessions",
@@ -286,14 +292,14 @@ function UpdatesWorkspace() {
       setBusy(false);
     }
   }
-  async function revise() {
-    if (!receipt) return;
+  async function revise(operationId = receipt?.id) {
+    if (!operationId) return;
     const value = await api<{
       editSession: EditSession;
       summary: string;
       details: string;
       issueNumbers: number[];
-    }>(`/api/operations/${receipt.id}/revise`, { method: "POST" });
+    }>(`/api/operations/${operationId}/revise`, { method: "POST" });
     setDraft({
       ...emptyDraft,
       session: value.editSession,
@@ -306,6 +312,17 @@ function UpdatesWorkspace() {
     setError(null);
     history.refresh();
   }
+  async function reviseFromHistory(operationId: string) {
+    if (busy || uploadInFlight.current) return;
+    if (!receipt && draft.session && !window.confirm(m.replaceDraftConfirm))
+      return;
+    setBusy(true);
+    try {
+      await revise(operationId);
+    } finally {
+      setBusy(false);
+    }
+  }
   const change = (value: Partial<UpdateDraft>) =>
     setDraft((previous) => ({
       ...previous,
@@ -315,6 +332,7 @@ function UpdatesWorkspace() {
   function discard() {
     if (!window.confirm(m.discardConfirm)) return;
     clearDraft();
+    setRecovered(false);
     setPreviewError(false);
     setError(null);
     reconciledSession.current = null;
@@ -420,7 +438,7 @@ function UpdatesWorkspace() {
           </button>
         </div>
       ) : (
-        <form className="update-form" onSubmit={submit}>
+        <form ref={formRef} className="update-form" onSubmit={submit}>
           {recovered && <Notice>{m.draftRecovered}</Notice>}
           <section className="edit-session-bar">
             <div>
@@ -470,6 +488,11 @@ function UpdatesWorkspace() {
               <UploadCloud size={24} />
               <h2>{m.stepUpload}</h2>
             </div>
+            {error === "REQUIRED_FILES" ? (
+              <Notice tone="error">{m.requiredFiles}</Notice>
+            ) : (
+              <ErrorNotice error={error} />
+            )}
             <div className="upload-grid">
               {(["json", "png"] as const).map((kind) => {
                 const asset = draft.session?.assets?.[kind];
@@ -674,11 +697,6 @@ function UpdatesWorkspace() {
             )}
             <Notice>{m.reviewNotice}</Notice>
             <p className="field-hint">{m.pendingNotice}</p>
-            {error === "REQUIRED_FILES" ? (
-              <Notice tone="error">{m.requiredFiles}</Notice>
-            ) : (
-              <ErrorNotice error={error} />
-            )}
             <div className="form-actions">
               <button
                 type="button"
@@ -741,6 +759,8 @@ function UpdatesWorkspace() {
                   key={value.id}
                   update={value}
                   other={group.other}
+                  onRevise={() => reviseFromHistory(value.id)}
+                  recoveryDisabled={busy || Boolean(uploading)}
                   onSuccess={() => {
                     history.refresh();
                     currentMap.refresh();
@@ -786,8 +806,12 @@ function UpdateHistoryItem({
   update: value,
   other,
   onSuccess,
+  onRevise,
+  recoveryDisabled,
 }: {
   update: UpdateSummary;
+  onRevise: () => Promise<void>;
+  recoveryDisabled: boolean;
   other: boolean;
   onSuccess: () => void;
 }) {
@@ -795,6 +819,8 @@ function UpdateHistoryItem({
   const locale = useLocale();
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<unknown>(null);
   return (
     <details
       className="history-item update-accordion"
@@ -839,7 +865,33 @@ function UpdateHistoryItem({
             {value.prNumber ? `#${value.prNumber}` : m.github}
           </ExternalAnchor>
         )}
-        {value.errorCode && <ErrorNotice error={value.errorCode} />}
+        {value.errorCode && (
+          <>
+            <p className="field-hint">{m.previousUpdateRejection}</p>
+            <ErrorNotice error={value.errorCode} />
+          </>
+        )}
+        <ErrorNotice error={recoveryError} />
+        {!other && value.canRevise && (
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={recovering || recoveryDisabled}
+            onClick={async () => {
+              setRecovering(true);
+              setRecoveryError(null);
+              try {
+                await onRevise();
+              } catch (error) {
+                setRecoveryError(error);
+              } finally {
+                setRecovering(false);
+              }
+            }}
+          >
+            {recovering ? m.loading : m.editAndResubmit}
+          </button>
+        )}
         {user?.role === "admin" &&
           value.prNumber &&
           ["awaiting_review", "merged", "published"].includes(value.status) && (

@@ -160,6 +160,7 @@ export type MapUpdateReview = {
   blockedReason: string | null;
 };
 export type UpdateSummary = {
+  canRevise?: boolean;
   authorName?: string | null;
   isCurrentPublication?: boolean;
   rollbackOf?: string | null;

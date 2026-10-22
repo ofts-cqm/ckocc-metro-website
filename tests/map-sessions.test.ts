@@ -27,6 +27,7 @@ let inserted: unknown[][];
 let authenticated = true;
 let userRole = "collaborator";
 let historyRows = 1;
+let historyOverrides: Record<string, unknown> = {};
 let updateQueries: { sql: string; params: unknown[] }[] = [];
 const user = {
   id: "player",
@@ -63,6 +64,10 @@ mock.module("../src/server/db/index.ts", {
         return {
           rows: Array.from({ length: historyRows }, () => ({
             id: sql.includes("IS DISTINCT FROM") ? "other-update" : "update",
+            kind: "update",
+            actor_id: sql.includes("IS DISTINCT FROM")
+              ? "other-player"
+              : user.id,
             author_name: sql.includes("IS DISTINCT FROM")
               ? "Other player"
               : "Player",
@@ -76,6 +81,7 @@ mock.module("../src/server/db/index.ts", {
             created_at: new Date(),
             updated_at: new Date(),
             error_code: null,
+            ...historyOverrides,
           })),
         };
       }
@@ -161,6 +167,7 @@ beforeEach(() => {
   authenticated = true;
   userRole = "collaborator";
   historyRows = 1;
+  historyOverrides = {};
   updateQueries = [];
   head = restoredCommit;
   manifests = { [restoredCommit]: original, [updateCommit]: changed };
@@ -384,4 +391,54 @@ test("both history groups return at most ten updates and indicate more results",
   ).json();
   assert.equal(lastPage.hasMore, false);
   assert.equal(lastPage.othersHasMore, false);
+});
+
+test("history exposes owner recovery only for safe failures and usable replacement drafts", async () => {
+  userRole = "admin";
+  for (const [eligible, patch] of [
+    [true, {}],
+    [false, { checkpoint: { autoRetry: true } }],
+    [false, { checkpoint: { prIntent: true } }],
+    [false, { checkpoint: { commitSha: "written" } }],
+    [false, { status: "outcome_unknown" }],
+    [false, { kind: "rollback" }],
+    [
+      true,
+      {
+        checkpoint: { revisedEditSessionId: "replacement" },
+        revised_status: "draft",
+        revised_expires_at: new Date(Date.now() + 100000),
+      },
+    ],
+    [
+      false,
+      {
+        checkpoint: { revisedEditSessionId: "replacement" },
+        revised_status: "draft",
+        revised_expires_at: new Date(Date.now() - 100000),
+      },
+    ],
+    [
+      false,
+      {
+        checkpoint: { revisedEditSessionId: "replacement" },
+        revised_status: "submitted",
+        revised_expires_at: new Date(Date.now() + 100000),
+      },
+    ],
+  ] as const) {
+    historyOverrides = {
+      status: "failed",
+      error_code: "unsupported_map_format",
+      ...patch,
+    };
+    const response = await handlers.getUpdates(
+      new Request("http://localhost/api/updates"),
+      context,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.updates[0].canRevise, eligible);
+    assert.equal(body.otherUpdates[0].canRevise, false);
+  }
 });

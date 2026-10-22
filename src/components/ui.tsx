@@ -119,6 +119,7 @@ export function errorKey(error: unknown): MessageKey {
   if (/LAST_ADMIN/.test(code)) return "lastAdmin";
   if (/FRESH_AUTH/.test(code)) return "freshAuth";
   if (/NETWORK/.test(code)) return "errorNetwork";
+  if (/STORAGE_QUOTA_EXCEEDED/.test(code)) return "errorStorageQuota";
   if (/RATE|LIMIT_EXCEEDED/.test(code)) return "errorRateLimit";
   if (/PAUSED/.test(code)) return "errorPaused";
   if (/CREDENTIAL|INVALID_EMAIL_OR_PASSWORD|PASSWORD_INVALID/.test(code))

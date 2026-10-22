@@ -72,6 +72,7 @@ import {
   acceptOperation,
   getOperation,
   operationView,
+  canReviseUpdate,
   sameDigest,
   retryOperation,
   type Operation,
@@ -558,10 +559,16 @@ export const getUpdates = route(async (request) => {
     .positive()
     .max(1000000)
     .parse(new URL(request.url).searchParams.get("othersPage") ?? 1);
-  type AuthoredOperation = Operation & { author_name: string | null };
+  type AuthoredOperation = Operation & {
+    author_name: string | null;
+    revised_status: string | null;
+    revised_expires_at: Date | null;
+  };
   const repository = repositoryConfig().key;
   const result = await query<AuthoredOperation>(
-    `SELECT o.*, u.name AS author_name FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+    `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at
+     FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+     LEFT JOIN metro_edit_sessions revised ON revised.id::text=o.checkpoint->>'revisedEditSessionId'
      WHERE o.kind IN ('update','rollback') AND o.actor_id=$1 AND o.checkpoint->>'repository'=$2
      ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
     [user.id, repository, (historyPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
@@ -569,7 +576,9 @@ export const getUpdates = route(async (request) => {
   const others =
     user.role === "admin"
       ? await query<AuthoredOperation>(
-          `SELECT o.*, u.name AS author_name FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+          `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at
+     FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
+     LEFT JOIN metro_edit_sessions revised ON revised.id::text=o.checkpoint->>'revisedEditSessionId'
      WHERE o.kind IN ('update','rollback') AND o.actor_id IS DISTINCT FROM $1 AND o.checkpoint->>'repository'=$2
      ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
           [user.id, repository, (othersPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
@@ -581,6 +590,13 @@ export const getUpdates = route(async (request) => {
   );
   const summary = (op: AuthoredOperation): UpdateSummary => ({
     authorName: op.author_name,
+    canRevise:
+      op.actor_id === user.id &&
+      canReviseUpdate(op) &&
+      (!op.checkpoint.revisedEditSessionId ||
+        (op.revised_status === "draft" &&
+          op.revised_expires_at !== null &&
+          new Date(op.revised_expires_at).getTime() > Date.now())),
     id: op.id,
     isCurrentPublication: publication.rows[0]?.operation_id === op.id,
     rollbackOf: op.kind === "rollback" ? String(op.payload.updateId) : null,

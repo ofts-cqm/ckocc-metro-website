@@ -148,7 +148,15 @@ npm run db:local:start
 node --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-update-recovery.ts
 ```
 
-This checks six concurrent recovery requests return one pinned draft and audit, preserve the failed record, and block its old retry/worker lease. Unit/browser checks cover file validation, authorization, and the editable form; hosted upload callbacks and PR creation still require provider acceptance.
+This checks six concurrent recovery requests return one pinned draft and audit, preserve the failed record, block its old retry/worker lease, and expose history recovery only while the replacement remains editable. Unit/browser checks cover file validation, authorization, and the editable form; hosted upload callbacks and PR creation still require provider acceptance.
+
+### Local PostgreSQL upload-quota acceptance
+
+```sh
+node --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-upload-quota.ts
+```
+
+This refuses remote/non-development connections and uses a temporary schema that is removed afterward. It verifies actual-size charging for ready uploads, maximum pending reservations, missing-size fallback, deleted exclusion, account/global limits, and concurrent reservations. No Blob objects are written or deleted. `storage_quota_exceeded` on `/api/uploads/reserve` is a byte quota, not a request rate limit; `DISABLE_RATE_LIMITS` does not bypass it. Expired retained uploads count until cleanup confirms deletion. Use normal administrator maintenance for cleanup; do not reset quota counters or erase failed/uncertain operation assets.
 
 ### Local PostgreSQL email acceptance
 
@@ -185,7 +193,7 @@ Record each result/fix in the relevant technical-spec testing notes, and rerun a
 - **Accounts:** login/logout, invitations and concurrent redemption, password reset/disabled-session revocation, account-name enforcement, guest name protection, fresh-admin and role boundaries, public-signup rejection.
 - **Requests/discussion:** real challenge success/rejection, general and line requests, Chinese text, missing optional names, string line numbers, custom/default dimensions, integer coordinates, comments/replies/mentions, guest quota, chronological pagination, closed/locked/unlabeled rejection, safe Markdown and explicit issue closing.
 - **Uploads/maps:** actual JSON/PNG pair, pinned source, private/public storage access, preview/draft recovery on reload/locale changes/expired sessions, corrupt/oversized files, ownership checks, editor reopening and JSON/PNG visual correspondence.
-- **Upload validation/recovery:** choose malformed JSON, invalid version metadata, and a corrupt PNG; each must fail before becoming a ready asset or accepting a submission. Confirm valid v80/v81 and future-version fixtures work, while future-version files with broken graphs fail. On a failed update without external writes, **Try again** must restore the original base/text/issue selection into an editable draft, require file selection, survive reload, and prevent retry of the replaced operation. Uncertain/written operations must remain blocked from this recovery.
+- **Upload validation/recovery:** choose malformed JSON, invalid version metadata, and a corrupt PNG; each must fail before becoming a ready asset or accepting a submission. Confirm valid v80/v81 and future-version fixtures work, while future-version files with broken graphs fail. On a failed update without external writes, **Try again** in the receipt panel and **Edit and resubmit** in expanded **My updates** history must restore the original base/text/issue selection into an editable draft, require file selection, survive reload, and prevent retry of the replaced operation. Also test history recovery in a fresh tab without a saved receipt, confirmation before replacing a current draft, and retry after an API failure. Uncertain/written operations must remain blocked from this recovery.
 - **GitHub/recovery:** one issue/comment/PR under duplicate or concurrent requests and interrupted workers; exact fixed paths and selected issue links; last-good map until merge; unmerged closure; two competing edits; stale rejection even after Update branch; invalid PR blocked; historical rollback; duplicate confirmations; publication retry without another merge.
 - **Publication/security:** valid/invalid/duplicate/missed/out-of-order webhooks, authenticated repair, trusted proxy limits, same-origin checks, durable jobs/outbox, safe diagnostic errors and logs.
 - **Inbox/email:** reply/mention/admin recipient rules, self exclusion, persisted reads, consent/verification/address changes, queued invalidation, daily-cap concurrency/UTC rollover/retry reservations, invalid and early/out-of-order SNS feedback, suppression persistence, transient versus ambiguous send handling, inbox unaffected by email failure.

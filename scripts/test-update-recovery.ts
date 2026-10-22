@@ -6,7 +6,23 @@ import { mock } from "node:test";
 import { Client } from "pg";
 
 // Recovery needs no GitHub calls. Keep provider initialization out of this check.
-mock.module("../src/server/github/client.ts", { namedExports: {} });
+mock.module("../src/server/github/client.ts", {
+  namedExports: {
+    repositoryConfig: () => ({ key: "local/test", branch: "main" }),
+    githubConfigured: () => false,
+    MAP_PATHS: {},
+  },
+});
+mock.module("../src/server/auth/authorize.ts", {
+  namedExports: {
+    requireUser: async () => ({
+      id: "recovery-owner",
+      name: "Player",
+      email: "p@example.invalid",
+      role: "collaborator",
+    }),
+  },
+});
 async function main() {
   const connection = process.env.DATABASE_URL;
   if (!connection) throw new Error("A local test database is required.");
@@ -68,6 +84,20 @@ async function main() {
     const { reviseUpdate } = await import("../src/server/operations/revise");
     const { retryOperation, leaseOperation } =
       await import("../src/server/operations/store");
+    await query(
+      'UPDATE metro_operations SET checkpoint=checkpoint||\'{"repository":"local/test"}\'::jsonb WHERE id=$1',
+      [opId],
+    );
+    const { getUpdates } = await import("../src/server/operations/handlers");
+    const history = async () => {
+      const response = await getUpdates(
+        new Request("http://localhost/api/updates"),
+        { params: Promise.resolve({}) },
+      );
+      assert.equal(response.status, 200);
+      return (await response.json()).updates;
+    };
+    assert.equal((await history())[0].canRevise, true);
     const recovered = await Promise.all(
       Array.from({ length: 6 }, () => reviseUpdate(opId, user)),
     );
@@ -101,6 +131,20 @@ async function main() {
         ])
       ).rows[0].state,
       "done",
+    );
+    assert.equal((await history())[0].canRevise, true);
+    await query(
+      "UPDATE metro_edit_sessions SET status='submitted' WHERE id=$1",
+      [recovered[0].editSession.id],
+    );
+    assert.equal((await history())[0].canRevise, false);
+    await query(
+      "UPDATE metro_edit_sessions SET status='draft',expires_at=now()-interval '1 day' WHERE id=$1",
+      [recovered[0].editSession.id],
+    );
+    assert.equal((await history())[0].canRevise, false);
+    console.log(
+      "PASS: saved history exposes safe recovery, resumes active replacements, and hides submitted or expired replacements.",
     );
     console.log(
       "PASS: six concurrent recoveries create one pinned draft and audit; replaced operation cannot retry or lease.",

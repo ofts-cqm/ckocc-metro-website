@@ -17,10 +17,11 @@ for (const failed of [true, false]) {
   test(
     failed
       ? "Try again restores editable text and pinned base with required files"
-      : "invalid submission stays in the editable draft without accepted receipt",
+      : "invalid submission and upload quota rejection keep the draft editable",
     async ({ page }) => {
       let revisions = 0,
-        submissions = 0;
+        submissions = 0,
+        quotaAttempts = 0;
       const recovered = {
         ...session,
         id: "22222222-2222-4222-8222-222222222222",
@@ -74,6 +75,13 @@ for (const failed of [true, false]) {
             });
           }
           return route.fulfill({ json: { updates: [] } });
+        }
+        if (path === "/api/uploads/reserve") {
+          quotaAttempts++;
+          return route.fulfill({
+            status: 429,
+            json: { error: { code: "storage_quota_exceeded" } },
+          });
         }
         if (path === "/api/issues")
           return route.fulfill({ json: { issues: [], hasMore: false } });
@@ -135,6 +143,26 @@ for (const failed of [true, false]) {
       await expect(
         page.getByRole("textbox", { name: /^What changed/ }),
       ).toHaveValue("Preserved explanation");
+      if (!failed) {
+        const file = page.locator(
+          'input[type=file][accept=".json,application/json"]',
+        );
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          await file.setInputFiles({
+            name: "map.json",
+            mimeType: "application/json",
+            buffer: Buffer.from("{}"),
+          });
+          await expect(
+            page.locator('.update-form [role="alert"]'),
+          ).toContainText("Upload storage is full");
+          await expect(file).toBeEnabled();
+          expect(quotaAttempts).toBe(attempt);
+        }
+        await expect(
+          page.getByRole("textbox", { name: /^Update summary/ }),
+        ).toHaveValue("Preserved map summary");
+      }
       if (failed) {
         await expect(page.locator("button[type=submit]")).toBeDisabled();
         await page.reload();

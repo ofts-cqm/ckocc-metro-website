@@ -423,6 +423,8 @@ const en = {
   errorValidation: "Check the form fields and try again.",
   errorRegisteredName:
     "That in-game name belongs to a registered account. Sign in or use a different name.",
+  errorStorageQuota:
+    "Upload storage is full. Your draft has been kept. Ask an administrator to clean up unused uploads, then try again.",
   errorRateLimit:
     "You have sent several requests recently. Please wait a little before trying again.",
   errorUnavailable: "This service is not ready yet. Please try again later.",
@@ -442,6 +444,11 @@ const en = {
     "This file does not have the expected RMP document structure or valid version metadata.",
   errorMapDocument:
     "The RMP document has invalid map fields or broken graph references. Export it again from RMP.",
+  editAndResubmit: "Edit and resubmit",
+  previousUpdateRejection:
+    "This entry records the result of a previous submission attempt.",
+  replaceDraftConfirm:
+    "Replace the draft currently open in this tab with this previous submission? Unsaved changes in the current draft will be lost.",
   draftRecovered:
     "Your draft is editable again. Your text and starting map version have been kept. Select the JSON and PNG files again before submitting.",
   errorFile: "Choose a valid JSON map document and PNG image.",
@@ -835,6 +842,8 @@ const cn: Messages = {
   errorNetwork: "连接失败，请检查网络后重试。",
   errorValidation: "请检查表单内容后重试。",
   errorRegisteredName: "该游戏内名称属于已注册账号。请登录或使用其他名称。",
+  errorStorageQuota:
+    "上传存储空间已满，草稿已保留。请联系管理员清理不再使用的上传文件后重试。",
   errorRateLimit: "你最近提交的内容较多，请稍后重试。",
   errorUnavailable: "服务尚未就绪，请稍后再试。",
   errorPaused: "管理员已暂时停止接收新请求与评论。",
@@ -847,6 +856,10 @@ const cn: Messages = {
   errorConflict: "此提交的状态已改变，请刷新状态后重试。",
   errorMapVersion: "此文件不符合 RMP 文档结构，或版本信息无效。",
   errorMapDocument: "RMP 文档的地图字段或图形引用无效。请从 RMP 重新导出。",
+  editAndResubmit: "编辑并重新提交",
+  previousUpdateRejection: "此条目记录的是之前一次提交的结果。",
+  replaceDraftConfirm:
+    "要用此历史提交替换当前标签页中的草稿吗？当前草稿未提交的修改将丢失。",
   draftRecovered:
     "草稿已恢复编辑，文字与起始地图版本已保留。请重新选择 JSON 和 PNG 文件后提交。",
   errorFile: "请选择有效的 JSON 地图文档与 PNG 图片。",
@@ -1236,6 +1249,8 @@ const hk: Messages = {
   errorNetwork: "未能連線，請檢查網絡後再試。",
   errorValidation: "請檢查表格內容後再試。",
   errorRegisteredName: "該遊戲內名稱屬於已註冊帳戶。請登入或使用其他名稱。",
+  errorStorageQuota:
+    "上傳儲存空間已滿，草稿已保留。請聯絡管理員清理不再使用的上傳檔案後重試。",
   errorRateLimit: "你最近提交的內容較多，請稍後再試。",
   errorUnavailable: "服務尚未準備好，請稍後再試。",
   errorPaused: "管理員已暫停接收新請求及留言。",
@@ -1248,6 +1263,10 @@ const hk: Messages = {
   errorConflict: "此提交的狀態已改變，請重新載入狀態後再試。",
   errorMapVersion: "此檔案不符合 RMP 文件結構，或版本資訊無效。",
   errorMapDocument: "RMP 文件的地圖欄位或圖形引用無效。請從 RMP 重新匯出。",
+  editAndResubmit: "編輯並重新提交",
+  previousUpdateRejection: "此項目記錄的是之前一次提交的結果。",
+  replaceDraftConfirm:
+    "要用此歷史提交取代目前分頁中的草稿嗎？目前草稿未提交的修改將會遺失。",
   draftRecovered:
     "草稿已恢復編輯，文字與起始地圖版本已保留。請重新選擇 JSON 和 PNG 檔案後提交。",
   errorFile: "請選擇有效的 JSON 地圖檔案及 PNG 圖片。",
