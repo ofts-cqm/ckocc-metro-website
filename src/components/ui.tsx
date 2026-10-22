@@ -136,6 +136,8 @@ export function errorKey(error: unknown): MessageKey {
   if (/VALIDATION|INVALID_INPUT|BAD_REQUEST|INVALID_BODY/.test(code))
     return "errorValidation";
   if (/MULTIPLE_FILES/.test(code)) return "errorMultipleFiles";
+  if (/UNSUPPORTED_MAP_FORMAT/.test(code)) return "errorMapVersion";
+  if (/INVALID_MAP_(DOCUMENT|GRAPH)/.test(code)) return "errorMapDocument";
   if (/UPLOAD|FORMAT|INVALID_JSON|INVALID_PNG/.test(code)) return "errorFile";
   if (/UNAVAILABLE|NOT_CONFIGURED|CONFIGURATION/.test(code))
     return "errorUnavailable";
@@ -712,8 +714,10 @@ export function readReceipt(
 export function OperationProgress({
   receipt,
   onSuccess,
+  onRevise,
 }: {
   receipt: Receipt;
+  onRevise?: () => Promise<void>;
   onSuccess?: (operation: OperationView) => void;
 }) {
   const m = useMessages();
@@ -721,6 +725,7 @@ export function OperationProgress({
   const [operation, setOperation] = useState<OperationView | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [pollVersion, setPollVersion] = useState(0);
+  const [revising, setRevising] = useState(false);
   const success = useRef(onSuccess);
   const finished = useRef(false);
   success.current = onSuccess;
@@ -813,11 +818,23 @@ export function OperationProgress({
       ) : null}
       {operation?.errorCode && <ErrorNotice error={operation.errorCode} />}
       <ErrorNotice error={error} />
-      {(error || needsAttention) && (
+      {(error || (operation?.canRevise && onRevise)) && (
         <button
           className="text-button"
           type="button"
-          onClick={() => setPollVersion((v) => v + 1)}
+          disabled={revising}
+          onClick={async () => {
+            if (operation?.canRevise && onRevise) {
+              setRevising(true);
+              try {
+                await onRevise();
+              } catch (e) {
+                setError(e);
+              } finally {
+                setRevising(false);
+              }
+            } else setPollVersion((v) => v + 1);
+          }}
         >
           {m.retry}
         </button>

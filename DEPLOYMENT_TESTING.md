@@ -78,7 +78,7 @@ The approved bootstrap reference map is available before first publication. Logi
 1. Register a GitHub App under the data repository owner, disable unused OAuth/device flows, generate a private key, and install it on only the intended repository. Record App ID and installation ID separately.
 2. Grant Contents, Issues, and Pull requests **write**, Metadata and Checks **read**. Keep Workflows/Administration permissions and validation bypass rights away from the runtime identity. Confirm its exact bot login.
 3. Initialize the data repository's default branch with the approved `maps/network.json`, `maps/network.png`, and `maps/manifest.json`. Pre-create `metro-request`, `type:general`, `type:line-update`, `operation:add`, and `operation:update` labels. The production repository is [ofts-cqm/ckocc-metro-map](https://github.com/ofts-cqm/ckocc-metro-map); local acceptance uses `ofts-cqm/ckocc-metro-map-test`.
-4. Install the reviewed workflow/validator using an administrator identity. Follow the [validation template instructions](data-repository-template/README.md), including pinning checkout to a verified release commit. Require trusted GitHub Actions `validate-map` and strict up-to-date branches, with no validation bypass. Disable force pushes.
+4. Install the reviewed workflow/validator using an administrator identity. For structurally compatible RMP exports of any version, install the updated `data-repository-template/scripts/validate_map.py` and `prepare_manifest.py` on the data repository default branch before deploying website support; it validates structure without a version allowlist and checks that the manifest editor version matches the JSON. Follow the [validation template instructions](data-repository-template/README.md), including pinning checkout to a verified release commit. Require trusted GitHub Actions `validate-map` and strict up-to-date branches, with no validation bypass. Disable force pushes.
 5. Permit administrators and the application to merge through PRs; enable merge commits. If website confirmation supplies approval, do not also require a separate GitHub approval. Keep merger-identity permissions separate from the validation rules so identity access cannot bypass checks.
 6. In App webhook settings, enable `https://<origin>/api/webhooks/github`, SSL verification, and Push, Pull request, Issues, and Issue comment events. Match `GITHUB_WEBHOOK_SECRET` and confirm delivery. Do not use a locale prefix or block provider callbacks behind interactive authentication.
 7. Exercise competing PRs, invalid content, rollback, duplicate confirmations, and publication recovery against the test repository. Only then set `WEBSITE_MERGES_ENABLED=true` in the target environment.
@@ -130,6 +130,7 @@ Primary functional acceptance runs locally against the dedicated test repository
 
 ```sh
 npm run test:unit
+python3 tests/map_validator_test.py
 npm run test:browser
 npm run typecheck
 npm run build
@@ -137,6 +138,17 @@ git diff --check
 ```
 
 Playwright starts/reuses the local development server on `http://localhost:3000` and retains failure traces. Install its browser runtime if absent (`npx playwright install chromium`). Review the environment before integration runs. Typecheck/build prove compilation, not provider permissions or functional acceptance. If Node reports only file-level unit counts, run a test file directly with `node --experimental-test-module-mocks --conditions=react-server --import tsx tests/<name>.test.ts` for its individual results.
+
+### Local PostgreSQL update recovery acceptance
+
+Run against the existing local development database. The script refuses remote/non-development connections, creates an isolated schema, and removes it afterward; it makes no GitHub or Blob writes.
+
+```sh
+npm run db:local:start
+node --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-update-recovery.ts
+```
+
+This checks six concurrent recovery requests return one pinned draft and audit, preserve the failed record, and block its old retry/worker lease. Unit/browser checks cover file validation, authorization, and the editable form; hosted upload callbacks and PR creation still require provider acceptance.
 
 ### Local PostgreSQL email acceptance
 
@@ -173,6 +185,7 @@ Record each result/fix in the relevant technical-spec testing notes, and rerun a
 - **Accounts:** login/logout, invitations and concurrent redemption, password reset/disabled-session revocation, account-name enforcement, guest name protection, fresh-admin and role boundaries, public-signup rejection.
 - **Requests/discussion:** real challenge success/rejection, general and line requests, Chinese text, missing optional names, string line numbers, custom/default dimensions, integer coordinates, comments/replies/mentions, guest quota, chronological pagination, closed/locked/unlabeled rejection, safe Markdown and explicit issue closing.
 - **Uploads/maps:** actual JSON/PNG pair, pinned source, private/public storage access, preview/draft recovery on reload/locale changes/expired sessions, corrupt/oversized files, ownership checks, editor reopening and JSON/PNG visual correspondence.
+- **Upload validation/recovery:** choose malformed JSON, invalid version metadata, and a corrupt PNG; each must fail before becoming a ready asset or accepting a submission. Confirm valid v80/v81 and future-version fixtures work, while future-version files with broken graphs fail. On a failed update without external writes, **Try again** must restore the original base/text/issue selection into an editable draft, require file selection, survive reload, and prevent retry of the replaced operation. Uncertain/written operations must remain blocked from this recovery.
 - **GitHub/recovery:** one issue/comment/PR under duplicate or concurrent requests and interrupted workers; exact fixed paths and selected issue links; last-good map until merge; unmerged closure; two competing edits; stale rejection even after Update branch; invalid PR blocked; historical rollback; duplicate confirmations; publication retry without another merge.
 - **Publication/security:** valid/invalid/duplicate/missed/out-of-order webhooks, authenticated repair, trusted proxy limits, same-origin checks, durable jobs/outbox, safe diagnostic errors and logs.
 - **Inbox/email:** reply/mention/admin recipient rules, self exclusion, persisted reads, consent/verification/address changes, queued invalidation, daily-cap concurrency/UTC rollover/retry reservations, invalid and early/out-of-order SNS feedback, suppression persistence, transient versus ambiguous send handling, inbox unaffected by email failure.

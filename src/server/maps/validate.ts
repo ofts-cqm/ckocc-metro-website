@@ -29,8 +29,15 @@ function crc32(bytes: Buffer) {
 }
 
 export function detectFormat(document: unknown) {
-  return object(document) && document.version === 80 && object(document.graph)
-    ? { id: "rail-map-painter" as const, document_version: 80 as const }
+  return object(document) &&
+    finite(document.version) &&
+    Number.isSafeInteger(document.version) &&
+    document.version > 0 &&
+    object(document.graph)
+    ? {
+        id: "rail-map-painter" as const,
+        document_version: document.version as number,
+      }
     : null;
 }
 
@@ -163,7 +170,7 @@ export async function validatePng(bytes: Buffer) {
 
 export interface MapManifest {
   schema_version: 1;
-  editor: { id: "rail-map-painter"; document_version: 80 };
+  editor: { id: "rail-map-painter"; document_version: number };
   map_revision: string;
   base_map_revision: string | null;
   base_commit_sha: string | null;
@@ -197,7 +204,8 @@ export function parseManifest(bytes: Buffer): MapManifest {
     !m ||
     m.schema_version !== 1 ||
     m.editor?.id !== "rail-map-painter" ||
-    m.editor?.document_version !== 80 ||
+    !Number.isSafeInteger(m.editor?.document_version) ||
+    m.editor.document_version < 1 ||
     !revision.test(m.map_revision) ||
     !m.files ||
     m.files.json?.path !== "maps/network.json" ||
@@ -243,7 +251,8 @@ export async function validatePair(
   const revision = mapRevision(jsonHash, pngHash);
   if (
     manifest &&
-    (manifest.map_revision !== revision ||
+    (manifest.editor.document_version !== document.format.document_version ||
+      manifest.map_revision !== revision ||
       manifest.files.json.sha256 !== jsonHash ||
       manifest.files.png.sha256 !== pngHash ||
       manifest.files.json.bytes !== json.length ||

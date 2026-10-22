@@ -48,6 +48,7 @@ import {
   sha256,
   parseManifest,
   validatePng,
+  validatePair,
 } from "@/server/maps/validate";
 import {
   createEditSession,
@@ -509,6 +510,14 @@ export const postUpdate = route(async (request) => {
     const jsonUpload = uploads.rows.find((u) => u.kind === "json");
     const pngUpload = uploads.rows.find((u) => u.kind === "png");
     if (!jsonUpload || !pngUpload) throw new PipelineError("uploads_required");
+    // Validate even legacy ready uploads before accepting/locking the draft.
+    const [jsonBytes, pngBytes] = await Promise.all([
+      readStaged(jsonUpload),
+      readStaged(pngUpload),
+    ]);
+    const validation = await validatePair(jsonBytes, pngBytes);
+    if (validation.revision === session.base_revision)
+      throw new PipelineError("unchanged_map", 409);
     payload = {
       ...input,
       jsonUploadId: jsonUpload.id,

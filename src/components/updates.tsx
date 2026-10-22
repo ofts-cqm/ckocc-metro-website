@@ -98,6 +98,7 @@ function UpdatesWorkspace() {
   const [dragging, setDragging] = useState<"json" | "png" | null>(null);
   const dragDepth = useRef({ json: 0, png: 0 });
   const [percent, setPercent] = useState(0);
+  const [recovered, setRecovered] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [issuePage, setIssuePage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
@@ -248,7 +249,7 @@ function UpdatesWorkspace() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || !draft.session || receipt) return;
+    if (busy || uploadInFlight.current || !draft.session || receipt) return;
     setError(null);
     if (!hasFiles) {
       setError("REQUIRED_FILES");
@@ -284,6 +285,26 @@ function UpdatesWorkspace() {
     } finally {
       setBusy(false);
     }
+  }
+  async function revise() {
+    if (!receipt) return;
+    const value = await api<{
+      editSession: EditSession;
+      summary: string;
+      details: string;
+      issueNumbers: number[];
+    }>(`/api/operations/${receipt.id}/revise`, { method: "POST" });
+    setDraft({
+      ...emptyDraft,
+      session: value.editSession,
+      summary: value.summary,
+      details: value.details,
+      issueNumbers: value.issueNumbers,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    setRecovered(true);
+    setError(null);
+    history.refresh();
   }
   const change = (value: Partial<UpdateDraft>) =>
     setDraft((previous) => ({
@@ -381,7 +402,11 @@ function UpdatesWorkspace() {
         <div className="form-panel">
           <h2>{m.updateAccepted}</h2>
           <p>{m.updateAcceptedBody}</p>
-          <OperationProgress receipt={receipt} onSuccess={history.refresh} />
+          <OperationProgress
+            receipt={receipt}
+            onSuccess={history.refresh}
+            onRevise={revise}
+          />
           <button
             className="button button-secondary"
             onClick={() => {
@@ -396,6 +421,7 @@ function UpdatesWorkspace() {
         </div>
       ) : (
         <form className="update-form" onSubmit={submit}>
+          {recovered && <Notice>{m.draftRecovered}</Notice>}
           <section className="edit-session-bar">
             <div>
               <span>{m.startVersion}</span>

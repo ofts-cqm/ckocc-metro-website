@@ -125,6 +125,7 @@ export type OperationView = {
   result?: Record<string, unknown>;
   errorCode?: string | null;
   retryAt?: string | null;
+  canRevise?: boolean;
 };
 export type MapCheckState =
   | "pending"

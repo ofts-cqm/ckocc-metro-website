@@ -36,7 +36,7 @@ function document() {
 }
 const bytes = (input: unknown) => Buffer.from(JSON.stringify(input));
 
-test("map validation rejects duplicate keys, broken graph references and unsupported versions", () => {
+test("map validation rejects duplicate keys, broken graph references and invalid version metadata", () => {
   const duplicate = document();
   duplicate.graph.nodes[1].key = "a";
   assert.throws(
@@ -50,7 +50,7 @@ test("map validation rejects duplicate keys, broken graph references and unsuppo
     code("invalid_map_graph"),
   );
   const future = document();
-  future.version = 81;
+  future.version = -1;
   assert.throws(
     () => validateDocument(bytes(future)),
     code("unsupported_map_format"),
@@ -90,7 +90,7 @@ test("PNG validation rejects trailing bytes, truncation and non-PNG payloads", a
 });
 
 test("pair validation binds the manifest to both exact files and image dimensions", async () => {
-  const json = bytes(document());
+  const json = bytes({ ...document(), version: 82 });
   const png = await sharp({
     create: { width: 2, height: 3, channels: 4, background: "#147a68" },
   })
@@ -124,6 +124,15 @@ test("pair validation binds the manifest to both exact files and image dimension
     },
   };
   assert.deepEqual(parseManifest(bytes(manifest)), manifest);
+  assert.equal(manifest.editor.document_version, 82);
+  await validatePair(json, png, manifest);
+  await assert.rejects(
+    validatePair(json, png, {
+      ...manifest,
+      editor: { ...manifest.editor, document_version: 80 },
+    }),
+    code("manifest_checksum_mismatch"),
+  );
   await assert.rejects(
     validatePair(Buffer.concat([json, Buffer.from("\n")]), png, manifest),
     code("manifest_checksum_mismatch"),
@@ -139,4 +148,34 @@ test("pair validation binds the manifest to both exact files and image dimension
     mapRevision(result.jsonHash, result.pngHash),
     mapRevision(result.pngHash, result.jsonHash),
   );
+});
+
+for (const version of [1, 80, 81, 82, 999]) {
+  test(`RMP v${version} preserves resources and rejects broken graph references`, () => {
+    const doc = { ...document(), version };
+    const raw = bytes(doc);
+    const original = Buffer.from(raw);
+    assert.equal(validateDocument(raw).format.document_version, version);
+    assert.deepEqual(raw, original);
+    doc.graph.edges[0].target = "missing";
+    assert.throws(
+      () => validateDocument(bytes(doc)),
+      code("invalid_map_graph"),
+    );
+  });
+}
+
+test("version metadata must be a positive safe integer", () => {
+  for (const version of [
+    0,
+    -1,
+    1.5,
+    "81",
+    null,
+    true,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    const raw = bytes({ ...document(), version });
+    assert.throws(() => validateDocument(raw), code("unsupported_map_format"));
+  }
 });

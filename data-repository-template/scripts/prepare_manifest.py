@@ -26,14 +26,14 @@ def main():
     base = json.loads(subprocess.check_output(["git", "-C", str(args.repository), "show", args.base_commit + ":maps/manifest.json"]))
     raw_json = read(args.repository, "maps/network.json", MAX_JSON)
     raw_png = read(args.repository, "maps/network.png", MAX_PNG)
-    document(raw_json)
+    version = document(raw_json)
     width, height = png(raw_png)
     json_hash, png_hash = hashlib.sha256(raw_json).hexdigest(), hashlib.sha256(raw_png).hexdigest()
     revision = "sha256:" + hashlib.sha256((json_hash + "\n" + png_hash + "\n").encode()).hexdigest()
     require(revision != base["map_revision"], "The selected pair is unchanged from the base")
     manifest = {
         "schema_version": 1,
-        "editor": {"id": "rail-map-painter", "document_version": 80},
+        "editor": {"id": "rail-map-painter", "document_version": version},
         "map_revision": revision,
         "base_map_revision": base["map_revision"],
         "base_commit_sha": args.base_commit,

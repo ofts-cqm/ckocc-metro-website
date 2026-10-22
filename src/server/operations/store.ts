@@ -189,6 +189,20 @@ export async function getOperation(id: string) {
   if (!result.rows[0]) throw new PipelineError("operation_not_found", 404);
   return result.rows[0];
 }
+/** Only failures before any external write may become editable replacements. */
+export function canReviseUpdate(op: Operation) {
+  return (
+    op.kind === "update" &&
+    op.status === "failed" &&
+    op.checkpoint.autoRetry !== true &&
+    !["commitSha", "branchIntent", "prIntent", "prResult"].some((key) =>
+      Boolean(op.checkpoint[key]),
+    ) &&
+    !op.result.prNumber &&
+    !op.result.prUrl
+  );
+}
+
 export function operationView(op: Operation): OperationView {
   return {
     id: op.id,
@@ -198,6 +212,7 @@ export function operationView(op: Operation): OperationView {
     updatedAt: new Date(op.updated_at).toISOString(),
     result: op.result,
     errorCode: op.error_code,
+    canRevise: canReviseUpdate(op),
     retryAt:
       op.status === "failed" &&
       op.checkpoint.autoRetry === true &&
@@ -221,7 +236,7 @@ export async function leaseOperation(
   const token = randomUUID();
   const result = await query<Operation>(
     `UPDATE metro_operations SET lease_token=$2,lease_until=now()+interval '15 minutes',attempts=attempts+1,updated_at=now()
-    WHERE id=$1 AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) AND NOT(status=ANY($3::text[])) RETURNING *`,
+    WHERE id=$1 AND NOT(checkpoint ? 'revisedEditSessionId') AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) AND NOT(status=ANY($3::text[])) RETURNING *`,
     [id, token, terminalStates],
   );
   return result.rows[0] ? { op: result.rows[0], token } : null;
@@ -297,7 +312,10 @@ export async function retryOperation(id: string, actorId: string) {
     );
     const op = found.rows[0];
     if (!op) throw new PipelineError("operation_not_found", 404);
-    if (!["failed", "outcome_unknown", "accepted"].includes(op.status))
+    if (
+      op.checkpoint.revisedEditSessionId ||
+      !["failed", "outcome_unknown", "accepted"].includes(op.status)
+    )
       throw new PipelineError("operation_not_retryable", 409);
     // Preserve every checkpoint, particularly write intent. Unknown writes only reconcile.
     await client.query(

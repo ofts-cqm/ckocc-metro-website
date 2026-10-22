@@ -5,7 +5,11 @@ import type { SessionUser } from "@/lib/contracts";
 import { query, transaction } from "@/server/db";
 import { requireUser } from "@/server/auth/authorize";
 import { enforceSameOrigin } from "@/server/security";
-import { MAP_LIMITS } from "@/server/maps/validate";
+import {
+  MAP_LIMITS,
+  validateDocument,
+  validatePng,
+} from "@/server/maps/validate";
 import { PipelineError } from "@/server/operations/errors";
 import { ownedEditSession } from "@/server/maps/sessions";
 
@@ -86,6 +90,10 @@ export async function completeUpload(id: string, user?: SessionUser) {
       (upload.kind === "png" ? "image/png" : "application/json")
   )
     throw new PipelineError("invalid_upload");
+  // A ready upload has passed content validation, not just metadata checks.
+  const bytes = await readStaged({ ...upload, size: metadata.size });
+  if (upload.kind === "json") validateDocument(bytes);
+  else await validatePng(bytes);
   const result = await query<UploadRecord>(
     `UPDATE metro_uploads SET url=$2,size=$3,status='ready' WHERE id=$1 AND status IN ('reserved','ready') RETURNING *`,
     [id, metadata.url, metadata.size],

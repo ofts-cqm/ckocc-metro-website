@@ -438,6 +438,12 @@ const en = {
   errorClosed: "This discussion is no longer accepting comments.",
   errorConflict:
     "This submission has already changed. Refresh its status before trying again.",
+  errorMapVersion:
+    "This file does not have the expected RMP document structure or valid version metadata.",
+  errorMapDocument:
+    "The RMP document has invalid map fields or broken graph references. Export it again from RMP.",
+  draftRecovered:
+    "Your draft is editable again. Your text and starting map version have been kept. Select the JSON and PNG files again before submitting.",
   errorFile: "Choose a valid JSON map document and PNG image.",
   errorMultipleFiles: "Drop one file at a time into its matching upload area.",
   errorInvitation: "This link is invalid, expired, or has already been used.",
@@ -839,6 +845,10 @@ const cn: Messages = {
   errorCredentials: "邮箱或密码不正确。",
   errorClosed: "此讨论已停止接收评论。",
   errorConflict: "此提交的状态已改变，请刷新状态后重试。",
+  errorMapVersion: "此文件不符合 RMP 文档结构，或版本信息无效。",
+  errorMapDocument: "RMP 文档的地图字段或图形引用无效。请从 RMP 重新导出。",
+  draftRecovered:
+    "草稿已恢复编辑，文字与起始地图版本已保留。请重新选择 JSON 和 PNG 文件后提交。",
   errorFile: "请选择有效的 JSON 地图文档与 PNG 图片。",
   errorMultipleFiles: "请每次将一个文件拖入对应的上传区域。",
   errorInvitation: "链接无效、已过期或已被使用。",
@@ -1236,6 +1246,10 @@ const hk: Messages = {
   errorCredentials: "電郵或密碼不正確。",
   errorClosed: "此討論已停止接收留言。",
   errorConflict: "此提交的狀態已改變，請重新載入狀態後再試。",
+  errorMapVersion: "此檔案不符合 RMP 文件結構，或版本資訊無效。",
+  errorMapDocument: "RMP 文件的地圖欄位或圖形引用無效。請從 RMP 重新匯出。",
+  draftRecovered:
+    "草稿已恢復編輯，文字與起始地圖版本已保留。請重新選擇 JSON 和 PNG 檔案後提交。",
   errorFile: "請選擇有效的 JSON 地圖檔案及 PNG 圖片。",
   errorMultipleFiles: "請每次將一個檔案拖入相應的上載區域。",
   errorInvitation: "連結無效、已過期或已被使用。",

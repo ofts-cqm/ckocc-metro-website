@@ -33,7 +33,7 @@ def read(root, name, maximum):
 
 def document(raw):
     data = json.loads(raw.decode("utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError("Nonfinite JSON")))
-    require(isinstance(data, dict) and data.get("version") == 80, "Expected an RMP v80 document")
+    require(isinstance(data, dict) and type(data.get("version")) is int and 0 < data["version"] <= 9007199254740991, "Expected an RMP document with a positive integer version")
     for key in ("graph", "mapStyle", "svgViewBoxMin"):
         require(isinstance(data.get(key), dict), f"Missing object: {key}")
     require(type(data.get("svgViewBoxZoom")) in (int, float) and math.isfinite(data["svgViewBoxZoom"]) and data["svgViewBoxZoom"] > 0, "Invalid viewport zoom")
@@ -56,6 +56,7 @@ def document(raw):
         require(edge.get("source") in ids and edge.get("target") in ids, "Dangling edge")
         require(isinstance(edge.get("attributes"), dict), "Invalid edge attributes")
         edge_ids.add(edge["key"])
+    return data["version"]
 
 
 def png(raw):
@@ -126,9 +127,9 @@ def png(raw):
 def validate(root):
     raw_json, raw_png = read(root, "maps/network.json", MAX_JSON), read(root, "maps/network.png", MAX_PNG)
     manifest = json.loads(read(root, "maps/manifest.json", 32 * 1024).decode("utf-8"))
-    document(raw_json)
+    version = document(raw_json)
     width, height = png(raw_png)
-    require(manifest.get("schema_version") == 1 and manifest.get("editor") == {"id": "rail-map-painter", "document_version": 80}, "Invalid manifest version/editor")
+    require(manifest.get("schema_version") == 1 and manifest.get("editor") == {"id": "rail-map-painter", "document_version": version}, "Invalid manifest version/editor")
     hashes = {}
     for kind, raw in (("json", raw_json), ("png", raw_png)):
         row = manifest["files"][kind]
