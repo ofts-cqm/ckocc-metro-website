@@ -722,6 +722,96 @@ code {
   gap: 7px;
   color: #65725f;
 }
+/* Metro photography */
+.home-gallery {
+  margin-top: 60px;
+  scroll-margin-top: 112px;
+}
+.gallery-carousel,
+.gallery-item {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.gallery-photo-link {
+  display: block;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.gallery-carousel img,
+.gallery-item img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1600 / 865;
+  object-fit: contain;
+  background: var(--green-soft);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.gallery-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+}
+.gallery-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.gallery-counter {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.gallery-controls {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.gallery-controls .icon-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+}
+.gallery-page {
+  padding-top: 35px;
+  padding-bottom: 72px;
+}
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.gallery-item {
+  margin: 0;
+}
+.gallery-item figcaption {
+  padding: 14px 18px;
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .gallery-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .gallery-toolbar {
+    gap: 12px;
+    padding: 10px 12px;
+  }
+  .gallery-caption {
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+  }
+  .gallery-controls {
+    gap: 4px;
+  }
+}
+
 .request-board {
   margin-top: 66px;
   scroll-margin-top: 112px;

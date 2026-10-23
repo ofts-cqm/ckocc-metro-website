@@ -56,6 +56,24 @@ Migrations record SHA-256 checksums and use a session advisory lock spanning tra
 
 The 2026-10-06 local database setup verified migration hashes, the then-current 18 tables, role permissions, UTF-8, loopback listening, advisory locks, and write/read/rollback. That table count predates email migrations. Later email validation is recorded below. `scripts/test-email-migrations.ts` exercises the production migration command against isolated local schemas, including target isolation and prerequisite/checksum guards; its existence alone is not a recorded passing run.
 
+## Public photo gallery
+
+### Specification
+
+The homepage places a single-photo gallery immediately below the network map and its caption, before the community board. Each homepage visit shuffles a copy of the collection after client hydration, randomizing the starting photo and the sequence without changing the dedicated gallery order. All photos appear once before the sequence repeats; previous/next controls follow that same sequence for the visit. It advances every six seconds, wraps in both directions, and provides previous, next, and pause/resume controls. Hovering or focusing the carousel and hiding the browser tab suspend automatic changes. Reduced-motion preferences disable automatic rotation. Clicking the photo or **View all photos** opens the locale-preserving `/[locale]/gallery` page, with all photos in a responsive two-column grid (one column on narrow screens) and a return link to the homepage gallery.
+
+Photos retain their full composition and have localized captions and alternative text. The initial collection contains all 17 owner-supplied screenshots from `../gallery`. Static WebP derivatives at 640 and 1600 pixels wide live in `public/gallery`; the original PNGs remain in the source folder. `src/lib/gallery.ts` controls order and captions. Responsive image selection and lazy loading limit transfer size. This is a repository-managed collection; no upload service, provider writes, or database changes are required.
+
+### Status
+
+**2026-10-23: Implemented locally; not deployed.** Homepage slideshow, full gallery route, keyboard-accessible controls, reduced-motion handling, and English, Simplified Chinese, and Hong Kong Traditional Chinese copy are implemented. The 34 web images total approximately 3.6 MiB. The homepage now uses a fresh Fisher–Yates shuffle on each mount; the full gallery continues to use the fixed catalog order.
+
+### Testing notes
+
+**2026-10-23 shuffle update:** All seven gallery browser scenarios passed across focused runs. A seeded-randomness browser check verified different starting photos and sequences for two visits, all 17 photos exactly once per cycle, wraparound and reverse navigation, and the full gallery's unchanged catalog order. The existing rotation check also verifies that returning to the previous slide restores the same photo. Typecheck, production build, changed-source formatting, and `git diff --check` passed. These were local checks with mocked APIs, not hosted acceptance.
+
+**2026-10-23:** All six focused Playwright scenarios passed across local runs: six-second rotation, manual wraparound, hover/focus/pause behavior, reduced motion and keyboard controls, localized photo navigation and all 17 image loads in each language, return navigation, and mobile layout. Desktop and mobile carousel/gallery screenshots were inspected. The 20 unit-test files, typecheck, production build, changed-source formatting, and `git diff --check` passed. Browser checks used mocked APIs and real static images; no provider writes or hosted acceptance were performed. The first cold development navigation exceeded the default five-second assertion timeout; the navigation check now allows fifteen seconds for on-demand compilation.
+
 ## Accounts, authorization, and abuse controls
 
 ### Specification
