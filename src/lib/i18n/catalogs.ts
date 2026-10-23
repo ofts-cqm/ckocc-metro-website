@@ -15,6 +15,16 @@ export function isLocale(value: string): value is Locale {
 }
 
 const en = {
+  galleryEyebrow: "AROUND THE NETWORK",
+  galleryTitle: "Gallery",
+  galleryIntro:
+    "Stations, lines, and the places they connect, captured in Minecraft.",
+  galleryViewAll: "View all photos",
+  galleryPrevious: "Previous photo",
+  galleryNext: "Next photo",
+  galleryPause: "Pause slideshow",
+  galleryPlay: "Resume slideshow",
+
   emailSettings: "Email settings",
   emailSettingsIntro: "Manage your address and optional email notifications.",
   emailVerified: "Address verified",
@@ -502,6 +512,15 @@ export type MessageKey = keyof typeof en;
 export type Messages = { [K in MessageKey]: string };
 
 const cn: Messages = {
+  galleryEyebrow: "沿线风景",
+  galleryTitle: "相册",
+  galleryIntro: "用 Minecraft 截图记录车站、线路，以及它们连接的地方。",
+  galleryViewAll: "查看所有照片",
+  galleryPrevious: "上一张照片",
+  galleryNext: "下一张照片",
+  galleryPause: "暂停轮播",
+  galleryPlay: "继续轮播",
+
   emailSettings: "邮件设置",
   emailSettingsIntro: "管理邮箱地址和可选的邮件通知。",
   emailVerified: "邮箱已验证",
@@ -931,6 +950,15 @@ const cn: Messages = {
 };
 
 const hk: Messages = {
+  galleryEyebrow: "沿綫風景",
+  galleryTitle: "相簿",
+  galleryIntro: "用 Minecraft 截圖記錄車站、路綫，以及它們連接的地方。",
+  galleryViewAll: "查看所有相片",
+  galleryPrevious: "上一張相片",
+  galleryNext: "下一張相片",
+  galleryPause: "暫停輪播",
+  galleryPlay: "繼續輪播",
+
   emailSettings: "郵件設定",
   emailSettingsIntro: "管理電郵地址和可選的郵件通知。",
   emailVerified: "電郵已驗證",

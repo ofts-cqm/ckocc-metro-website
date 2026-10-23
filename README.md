@@ -7,6 +7,7 @@ As more people joined the work, keeping track of line updates, requests, comment
 ## Features
 
 - View the approved metro map, pan and zoom, and open the full-resolution image.
+- Browse metro screenshots in the homepage slideshow or explore the full photo gallery.
 - Submit general thoughts and requests for new or updated lines without creating an account.
 - Discuss requests through comments, replies, and mentions.
 - Follow replies and mentions in the website inbox, with optional verified email notifications for account holders.
