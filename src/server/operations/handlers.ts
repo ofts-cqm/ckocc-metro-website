@@ -686,7 +686,7 @@ export const getAdminOperations = route(async (request) => {
     await reconcileTerminalActions();
   }
   const result = await query<Operation>(
-    "SELECT * FROM metro_operations ORDER BY created_at DESC LIMIT 100",
+    "SELECT * FROM metro_operations WHERE NOT(checkpoint ? 'deletedAt') ORDER BY created_at DESC LIMIT 100",
   );
   return json({ operations: result.rows.map(operationView) });
 });

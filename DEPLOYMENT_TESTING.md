@@ -184,6 +184,24 @@ On deployment, verify existing pending PR catch-up from a default-branch mainten
 
 When the administration page shows an old PR action after its update has ended, loading **Operations needing attention** now checks eligible failed attempts against GitHub. Normal PR synchronization runs the same reconciliation. Confirmed obsolete attempts become **No longer needed** (`superseded`); their checkpoint retains the previous error and their pipeline audit records `supersede-terminal-pr-action`. Refresh after synchronization if the parent update was still stale. A provider outage, reopened PR, live lease, uncertain write, or unresolved publication can legitimately keep an alert visible; inspect its recorded outcome rather than clearing it manually. This requires the updated website code, with no database migration.
 
+### Manual operation reconciliation
+
+Preview every operation in the production database, using the connection from `.env.prod-migrations`:
+
+```sh
+npm run ops:reconcile -- --prod --repository ofts-cqm/ckocc-metro-map --github-env .env.local
+```
+
+Review the proposed changes, then append `--apply` to that command to record them. Production mode requires `PRODUCTION_DATABASE_URL` (shell or `.env.prod-migrations`) and never falls back to `DATABASE_URL`. `--github-env` imports only GitHub credentials and bot identity, never its database or repository target; choose a file whose App installation can read the selected repository, or omit it when those variables are already exported. `--repository` is required; `--branch` defaults to `main`. For an isolated development database, omit `--prod` and supply `DATABASE_URL` in the shell.
+
+The default preview enforces a read-only database connection. The scan is paginated across all operations. Apply retires deleted pre-write failed uploads, synchronizes confirmed terminal PR state, and supersedes obsolete pre-write PR actions. Each change locks and rechecks the recorded rows, retains the previous error, completes the outbox, and inserts `manual-reconcile-operation` in the pipeline audit. Reruns are safe; concurrent changes are skipped. No GitHub content, map publication, workflow, or email writes occur. This is not a blanket retry: uncertain writes, failed discussion/sync operations, and publication recovery still require their specific recovery paths. Missing evidence remains unresolved. Exit status `2` means unresolved records or racing changes; `1` means command/configuration failure. Safe JSON output contains operation IDs and reasons, not payloads or credentials.
+
+Local acceptance uses an isolated schema and mocked provider reads:
+
+```sh
+node --env-file=.env.local --conditions=react-server --import tsx scripts/test-manual-reconciliation.ts
+```
+
 ### Local PostgreSQL email acceptance
 
 Use only a loopback development/test database. These scripts create/remove isolated schemas and do not send external mail:

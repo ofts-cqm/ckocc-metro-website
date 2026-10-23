@@ -16,7 +16,8 @@
     "db:local:start": "node --import tsx scripts/local-db.ts start",
     "db:local:stop": "node --import tsx scripts/local-db.ts stop",
     "db:local:status": "node --import tsx scripts/local-db.ts status",
-    "admin:bootstrap": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/bootstrap-admin.ts"
+    "admin:bootstrap": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx scripts/bootstrap-admin.ts",
+    "ops:reconcile": "node --conditions=react-server --import tsx scripts/reconcile-operations.ts"
   },
   "engines": {
     "node": ">=22.18.0"
