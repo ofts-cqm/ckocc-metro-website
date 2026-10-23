@@ -14,7 +14,8 @@ export interface Operation {
     | "update"
     | "rollback"
     | "merge"
-    | "sync";
+    | "sync"
+    | "refresh-update";
   scope: string;
   idempotency_key: string;
   request_digest: string;

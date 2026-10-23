@@ -102,6 +102,13 @@ export function errorKey(error: unknown): MessageKey {
         ? error
         : ""
   ).toUpperCase();
+  if (/MAINTENANCE_SYNC_(REQUIRED|PENDING)/.test(code))
+    return "maintenanceUpdating";
+  if (/MAINTENANCE_SYNC_FAILED/.test(code)) return "maintenanceFailed";
+  if (/MAINTENANCE_SYNC_UNKNOWN/.test(code)) return "maintenanceUnknown";
+  if (/MERGE_CONFLICTS/.test(code)) return "mergeConflicts";
+  if (/MERGEABILITY_PENDING|MERGE_REVIEW_OUTDATED/.test(code))
+    return "mergeRefreshRequired";
   if (/MERGE_NOT_CONFIGURED/.test(code)) return "mergeNotConfigured";
   if (/MERGE_BLOCKED|PR_DRAFT|PR_NOT_MERGED/.test(code)) return "mergeBlocked";
   if (/MAP_CHECKS_PENDING/.test(code)) return "mapChecksPending";

@@ -142,6 +142,13 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   );
   let commitSha = op.checkpoint.commitSha as string | undefined;
   if (!commitSha) {
+    // Keep the recorded edit base in the manifest; choose a current parent when
+    // only maintenance has advanced main. This does not merge map documents.
+    const parentCommit =
+      (op.checkpoint.prParentCommit as string | undefined) ??
+      (await assertFresh(input.baseMapRevision)).commit;
+    if (!op.checkpoint.prParentCommit)
+      await checkpoint(op.id, leaseToken, { prParentCommit: parentCommit });
     if (op.kind === "rollback") await requireOperationAdmin(op);
     const blobs = await Promise.all([
       client.rest.git.createBlob({
@@ -166,7 +173,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
     const base = await client.rest.git.getCommit({
       owner,
       repo,
-      commit_sha: input.baseCommit,
+      commit_sha: parentCommit,
     });
     const tree = await client.rest.git.createTree({
       owner,
@@ -190,7 +197,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
       owner,
       repo,
       tree: tree.data.sha,
-      parents: [input.baseCommit],
+      parents: [parentCommit],
       message: `Map update ${op.id}`,
       author,
       committer: author,

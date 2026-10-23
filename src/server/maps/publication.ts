@@ -112,13 +112,16 @@ export async function synchronizePublication() {
 
 export async function synchronizePullRequests() {
   const client = await github();
-  const { owner, repo } = repositoryConfig();
+  const { owner, repo, key } = repositoryConfig();
   const ops = await query<{
     id: string;
     result: { prNumber: number };
     status: string;
-  }>(`SELECT id,result,status FROM metro_operations
-    WHERE kind IN ('update','rollback') AND status IN ('awaiting_review','merged') AND result ? 'prNumber' ORDER BY updated_at LIMIT 50`);
+  }>(
+    `SELECT id,result,status FROM metro_operations
+    WHERE kind IN ('update','rollback') AND status IN ('awaiting_review','merged') AND result ? 'prNumber' AND checkpoint->>'repository'=$1 ORDER BY updated_at LIMIT 50`,
+    [key],
+  );
   for (const op of ops.rows) {
     const pr = (
       await client.rest.pulls.get({
@@ -142,4 +145,7 @@ export async function synchronizePullRequests() {
         ],
       );
   }
+  const { queuePendingMaintenance } =
+    await import("@/server/operations/maintenance");
+  await queuePendingMaintenance();
 }

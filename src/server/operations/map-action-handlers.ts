@@ -7,6 +7,7 @@ import { query } from "@/server/db";
 import { idempotencyKeySchema } from "@/lib/schemas";
 import { acceptOperation, operationView, type Operation } from "./store";
 import { launchOperation } from "./outbox";
+import { queueMaintenanceSync } from "./maintenance";
 import { reviewMapUpdate, rollbackInput } from "./map-actions";
 import { PipelineError, safeErrorCode } from "./errors";
 
@@ -28,14 +29,30 @@ export async function getReview(request: Request, context: Context) {
     await enforceRateLimits([
       { key: `map-review:${user.id}`, max: 600, seconds: 3600 },
     ]);
-    return json({
-      review: await reviewMapUpdate(
-        z
-          .string()
-          .uuid()
-          .parse((await context.params).id),
-      ),
-    });
+    const id = z
+      .string()
+      .uuid()
+      .parse((await context.params).id);
+    const review = await reviewMapUpdate(id);
+    if (review.blockedReason === "maintenance_sync_required") {
+      const operation = await queueMaintenanceSync(
+        id,
+        review.headSha,
+        review.baseCommit,
+      );
+      review.maintenanceOperation = operationView(operation);
+      review.blockedReason =
+        ["failed", "outcome_unknown", "needs_reconciliation"].includes(
+          operation.status,
+        ) && !review.maintenanceOperation.retryAt
+          ? operation.status === "needs_reconciliation"
+            ? "stale_base_revision"
+            : operation.status === "outcome_unknown"
+              ? "maintenance_sync_unknown"
+              : "maintenance_sync_failed"
+          : "maintenance_sync_pending";
+    }
+    return json({ review });
   } catch (error) {
     return failure(error);
   }

@@ -146,6 +146,8 @@ export type MapValidationCheck = {
   }[];
 };
 export type MapUpdateReview = {
+  maintenanceUpdated?: boolean;
+  maintenanceOperation?: OperationView;
   validation: MapValidationCheck;
   headSha: string;
   baseCommit: string;

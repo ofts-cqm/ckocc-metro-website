@@ -35,6 +35,16 @@ let checkStatus = "completed",
 let checkConclusion = "success",
   checkApp = "github-actions",
   changedPaths: string[];
+let cachedPrHead: string | undefined;
+let mergeParents: string[] = [],
+  checksOnHead = true;
+let behind = 0,
+  refUpdates = 0;
+let refreshMode = "none";
+let blobContents: string[] = [];
+let commitParents: string[] = [];
+let treeBase = "";
+let treePaths: string[] = [];
 let mergeCalls = 0,
   createCalls = 0,
   publicationCalls = 0,
@@ -84,7 +94,7 @@ function pr() {
     mergeable,
     mergeable_state: mergeState,
     head: {
-      sha: prHead,
+      sha: cachedPrHead ?? prHead,
       ref: `metro-update/${sourceId}`,
       repo: { full_name: "test/map" },
     },
@@ -112,7 +122,14 @@ mock.module("../src/server/auth/config.ts", {
 });
 mock.module("../src/server/db/index.ts", {
   namedExports: {
-    query: async (sql: string) => {
+    query: async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("checkpoint=checkpoint||$3::jsonb")) {
+        assert.equal(params[0], source.id);
+        if (params[1] !== source.checkpoint.commitSha)
+          return { rowCount: 0, rows: [] };
+        Object.assign(source.checkpoint, JSON.parse(String(params[2])));
+        return { rowCount: 1, rows: [{ id: source.id }] };
+      }
       if (sql.includes('SELECT s.id FROM "session"'))
         return { rowCount: validSession ? 1 : 0, rows: [] };
       if (sql.includes("SELECT u.id, u.email, u.name"))
@@ -142,10 +159,14 @@ const client = {
         data: { default_branch: "main", allow_merge_commit: allowMerge },
       }),
       getBranch: async () => ({ data: { protected: protection } }),
-      compareCommits: async () => ({ data: { status: "ahead" } }),
+      compareCommits: async () => ({
+        data: { status: "ahead", behind_by: behind },
+      }),
     },
     checks: {
-      listForRef: async () => {
+      listForRef: async ({ ref }: { ref: string }) => {
+        if (!checksOnHead && ref === prHead)
+          return { data: { check_runs: [] } };
         if (checksUnavailable) throw new Error("Checks unavailable");
         return {
           data: {
@@ -199,11 +220,52 @@ const client = {
       },
     },
     git: {
-      getCommit: async () => ({ data: { tree: { sha: "tree" } } }),
-      createBlob: async () => ({ data: { sha: "blob" } }),
-      createTree: async () => ({ data: { sha: "tree" } }),
-      createCommit: async () => ({ data: { sha: "5".repeat(40) } }),
+      getCommit: async ({ commit_sha }: { commit_sha: string }) => ({
+        data: {
+          tree: { sha: `tree-${commit_sha}` },
+          parents: mergeParents.map((sha) => ({ sha })),
+        },
+      }),
+      createBlob: async ({ content }: { content: string }) => {
+        blobContents.push(content);
+        return { data: { sha: "blob" } };
+      },
+      createTree: async ({
+        base_tree,
+        tree,
+      }: {
+        base_tree: string;
+        tree: { path: string }[];
+      }) => {
+        treeBase = base_tree;
+        treePaths = tree.map((x) => x.path);
+        return { data: { sha: "tree" } };
+      },
+      createCommit: async ({ parents }: { parents: string[] }) => {
+        commitParents = parents;
+        return { data: { sha: "5".repeat(40) } };
+      },
+      updateRef: async ({
+        sha,
+        force,
+        ref,
+      }: {
+        sha: string;
+        force: boolean;
+        ref: string;
+      }) => {
+        refUpdates++;
+        assert.equal(force, false);
+        assert.equal(ref, `heads/metro-update/${sourceId}`);
+        if (refreshMode === "before") throw new Error("timeout before write");
+        if (refreshMode === "denied") throw { status: 403 };
+        files[sha] = { ...files[prHead] };
+        prHead = sha;
+        if (refreshMode === "after") throw new Error("timeout after write");
+      },
       getRef: async ({ ref }: { ref: string }) => {
+        if (action.kind === "refresh-update")
+          return { data: { object: { sha: prHead } } };
         if (!branches[ref]) throw { status: 404 };
         return { data: { object: { sha: branches[ref] } } };
       },
@@ -212,8 +274,11 @@ const client = {
       },
     },
   },
-  paginate: async (method: () => Promise<{ data: unknown }>) => {
-    const { data } = await method();
+  paginate: async (
+    method: (input: any) => Promise<{ data: unknown }>,
+    input: unknown,
+  ) => {
+    const { data } = await method(input);
     return Array.isArray(data)
       ? data
       : (data as { check_runs: unknown[] }).check_runs;
@@ -236,6 +301,18 @@ mock.module("../src/server/github/client.ts", {
         throw new PipelineError("base_revision_not_found", 404);
       return files[commit][path];
     },
+  },
+});
+mock.module("../src/server/storage/staging.ts", {
+  namedExports: {
+    uploadRecord: async (id: string) => ({
+      owner_id: "admin",
+      edit_session_id: "edit",
+      kind: id,
+      status: "ready",
+    }),
+    readStaged: async (upload: { kind: "json" | "png" }) =>
+      files[headCommit][paths[upload.kind]],
   },
 });
 mock.module("../src/server/operations/store.ts", {
@@ -278,6 +355,7 @@ mock.module("../src/server/maps/publication.ts", {
     },
   },
 });
+let maintenance: typeof import("../src/server/operations/maintenance");
 let actions: typeof import("../src/server/operations/map-actions");
 let routes: typeof import("../src/server/operations/map-action-handlers");
 let processUpdate: typeof import("../src/server/operations/update").processUpdate;
@@ -333,6 +411,7 @@ before(async () => {
     };
     manifests[commit] = manifest;
   }
+  maintenance = await import("../src/server/operations/maintenance");
   actions = await import("../src/server/operations/map-actions");
   routes = await import("../src/server/operations/map-action-handlers");
   ({ processUpdate } = await import("../src/server/operations/update"));
@@ -345,6 +424,15 @@ beforeEach(() => {
   role = "admin";
   sessionDate = new Date();
   head = baseCommit;
+  cachedPrHead = undefined;
+  mergeParents = [];
+  checksOnHead = true;
+  behind = refUpdates = 0;
+  refreshMode = "none";
+  blobContents = [];
+  commitParents = [];
+  treeBase = "";
+  treePaths = [];
   merged = draft = false;
   state = "open";
   prHead = headCommit;
@@ -527,7 +615,7 @@ test("merge blocks failed, missing or untrusted checks, stale bases and reposito
   mergeState = "dirty";
   assert.equal(
     (await actions.reviewMapUpdate(sourceId)).blockedReason,
-    "merge_blocked",
+    "merge_conflicts",
   );
   mergeState = "clean";
   head = oldCommit;
@@ -698,4 +786,164 @@ test("untrusted or unavailable checks never appear as passed", async () => {
   review = await actions.reviewMapUpdate(sourceId);
   assert.equal(review.validation.state, "unavailable");
   assert.equal(review.canMerge, false);
+});
+
+function maintenanceFixture() {
+  source.status = "awaiting_review";
+  files[oldCommit] = { ...files[baseCommit] };
+  source.payload.baseCommit = oldCommit;
+  const manifest = JSON.parse(files[headCommit][paths.manifest].toString());
+  manifest.base_commit_sha = oldCommit;
+  files[headCommit][paths.manifest] = Buffer.from(
+    JSON.stringify(manifest, null, 4) + "\n",
+  );
+  action = makeOp("refresh-update");
+  action.payload = {
+    updateId: sourceId,
+    headSha: headCommit,
+    baseCommit,
+    baseMapRevision: source.payload.baseMapRevision,
+  };
+  behind = 1;
+}
+test("maintenance catch-up preserves all original map bytes and edit base on current approved tree", async () => {
+  maintenanceFixture();
+  const original = { ...files[headCommit] };
+  await maintenance.processMaintenanceSync(action, "lease");
+  assert.equal(refUpdates, 1);
+  assert.deepEqual(commitParents, [headCommit, baseCommit]);
+  assert.equal(treeBase, `tree-${baseCommit}`);
+  assert.deepEqual(treePaths, Object.values(paths));
+  assert.deepEqual(
+    blobContents.map((s) => Buffer.from(s, "base64")),
+    Object.values(original),
+  );
+  assert.equal(source.checkpoint.originalCommitSha, headCommit);
+  assert.equal(source.checkpoint.commitSha, "5".repeat(40));
+  assert.equal(source.payload.baseCommit, oldCommit);
+  assert.equal(source.checkpoint.maintenanceBaseCommit, baseCommit);
+  assert.equal(mergeCalls, 0);
+  await maintenance.processMaintenanceSync(action, "lease");
+  assert.equal(refUpdates, 1);
+});
+test("maintenance refuses changed maps, unexpected files, and disabled authors before any ref write", async () => {
+  maintenanceFixture();
+  action.payload.baseMapRevision = "sha256:changed";
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "pr_identity_changed",
+  });
+  action.payload.baseMapRevision = source.payload.baseMapRevision;
+  source.payload.baseMapRevision = action.payload.baseMapRevision =
+    manifests[oldCommit].map_revision;
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "stale_base_revision",
+  });
+  source.payload.baseMapRevision = action.payload.baseMapRevision =
+    manifests[baseCommit].map_revision;
+  changedPaths.push("scripts/evil.py");
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "pr_identity_changed",
+  });
+  changedPaths = Object.values(paths);
+  active = false;
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "unauthorized",
+  });
+  assert.equal(refUpdates, 0);
+});
+test("maintenance reconciles a lost successful ref response without repeating the write", async () => {
+  maintenanceFixture();
+  refreshMode = "after";
+  await maintenance.processMaintenanceSync(action, "lease");
+  await maintenance.processMaintenanceSync(action, "lease");
+  assert.equal(refUpdates, 1);
+  assert.equal(source.checkpoint.commitSha, "5".repeat(40));
+});
+test("uncertain maintenance writes stay unknown until the planned head is observed", async () => {
+  maintenanceFixture();
+  refreshMode = "before";
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "outcome_unknown",
+  });
+  refreshMode = "none";
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "outcome_unknown",
+  });
+  assert.equal(refUpdates, 1);
+  prHead = String(action.checkpoint.refreshCommit);
+  await maintenance.processMaintenanceSync(action, "lease");
+  assert.equal(refUpdates, 1);
+});
+test("maintenance skips superseded targets and treats explicit permission rejection as a safe failure", async () => {
+  maintenanceFixture();
+  action.payload.baseCommit = oldCommit;
+  assert.equal(
+    "skipped" in (await maintenance.processMaintenanceSync(action, "lease")),
+    true,
+  );
+  assert.equal(refUpdates, 0);
+  action.payload.baseCommit = baseCommit;
+  refreshMode = "denied";
+  await assert.rejects(maintenance.processMaintenanceSync(action, "lease"), {
+    code: "maintenance_sync_failed",
+  });
+  assert.equal(action.checkpoint.refreshIntent, false);
+  assert.equal(source.checkpoint.commitSha, headCommit);
+});
+test("behind PRs queue maintenance automatically and keep confirmation disabled", async () => {
+  maintenanceFixture();
+  assert.equal(
+    (await actions.reviewMapUpdate(sourceId)).blockedReason,
+    "maintenance_sync_required",
+  );
+  const response = await routes.getReview(
+    new Request("http://localhost/api/admin/updates/" + sourceId),
+    context,
+  );
+  assert.equal(response.status, 200);
+  const { review } = await response.json();
+  assert.equal(review.blockedReason, "maintenance_sync_pending");
+  assert.equal(review.canMerge, false);
+  assert.equal(refUpdates, 0);
+});
+
+test("cached test-merge checks cannot approve an updated PR head", async () => {
+  checksOnHead = false;
+  mergeParents = [oldCommit, baseCommit];
+  assert.equal((await actions.reviewMapUpdate(sourceId)).canMerge, false);
+  mergeParents = [headCommit, baseCommit];
+  assert.equal((await actions.reviewMapUpdate(sourceId)).canMerge, true);
+});
+
+test("temporary PR-read caching after catch-up is a pending state, not permission to use old checks", async () => {
+  maintenanceFixture();
+  await maintenance.processMaintenanceSync(action, "lease");
+  cachedPrHead = headCommit;
+  await assert.rejects(actions.reviewMapUpdate(sourceId), {
+    code: "maintenance_sync_pending",
+  });
+  await maintenance.processMaintenanceSync(action, "lease");
+  assert.equal(refUpdates, 1);
+});
+
+test("new map PRs use current maintenance tree without changing the contributor's edit base", async () => {
+  files[oldCommit] = { ...files[baseCommit] };
+  action = makeOp("update");
+  action.payload = {
+    baseCommit: oldCommit,
+    baseMapRevision: manifests[baseCommit].map_revision,
+    editSessionId: "edit",
+    summary: "Map update",
+    details: "",
+    issueNumbers: [],
+    jsonUploadId: "json",
+    pngUploadId: "png",
+  };
+  await processUpdate(action, "lease");
+  assert.deepEqual(commitParents, [baseCommit]);
+  assert.equal(treeBase, `tree-${baseCommit}`);
+  const recorded = action.checkpoint.manifest as MapManifest;
+  assert.equal(recorded.base_commit_sha, oldCommit);
+  assert.equal(recorded.base_map_revision, manifests[baseCommit].map_revision);
+  assert.equal(action.checkpoint.prParentCommit, baseCommit);
 });

@@ -10,6 +10,7 @@ import {
   api,
   ApiError,
   ErrorNotice,
+  ExternalAnchor,
   Notice,
   OperationProgress,
   readReceipt,
@@ -71,8 +72,7 @@ export function MapActions({
       setRefreshing(false);
     }
   }
-  const reviewingMerge =
-    active && action === "merge" && Boolean(review) && !receipt;
+  const reviewingMerge = active && action === "merge" && !receipt;
   useEffect(() => {
     if (!reviewingMerge) return;
     const timer = window.setInterval(() => {
@@ -219,7 +219,20 @@ export function MapActions({
               <p>{m.mergeApproval}</p>
             </>
           )}
-          {review.blockedReason && <ErrorNotice error={review.blockedReason} />}
+          {review.blockedReason === "maintenance_sync_pending" ? (
+            <Notice>{m.maintenanceUpdating}</Notice>
+          ) : review.blockedReason ? (
+            <ErrorNotice error={review.blockedReason} />
+          ) : null}
+          {review.maintenanceUpdated &&
+            review.validation.state !== "success" && (
+              <Notice>{m.maintenanceRechecking}</Notice>
+            )}
+          {review.blockedReason && (
+            <ExternalAnchor href={review.prUrl}>
+              {m.openMergeDetails}
+            </ExternalAnchor>
+          )}
           {((action === "merge" && review.canMerge) ||
             (action === "rollback" && review.canRollback)) && (
             <button
@@ -247,7 +260,12 @@ export function MapActions({
           </button>
         </div>
       )}
-      <ErrorNotice error={error} />
+      {error instanceof ApiError &&
+      error.code.toLowerCase() === "maintenance_sync_pending" ? (
+        <Notice>{m.maintenanceUpdating}</Notice>
+      ) : (
+        <ErrorNotice error={error} />
+      )}
       {receipt && (
         <OperationProgress
           key={receipt.id}

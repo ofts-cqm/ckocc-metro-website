@@ -13,6 +13,7 @@ import {
 import { processDiscussion } from "./discussion";
 import { processCloseIssue } from "./close-issue";
 import { processUpdate } from "./update";
+import { processMaintenanceSync } from "./maintenance";
 import { processMerge, requireOperationAdmin } from "./map-actions";
 import {
   synchronizePublication,
@@ -60,6 +61,9 @@ export async function executeOperation(
         ...result,
         publicationPending: false,
       });
+    } else if (op.kind === "refresh-update") {
+      const result = await processMaintenanceSync(op, token);
+      await finishOperation(id, token, "succeeded", result);
     } else if (op.kind === "update" || op.kind === "rollback") {
       const result = await processUpdate(op, token);
       await finishOperation(id, token, "awaiting_review", result);
@@ -86,6 +90,8 @@ export async function executeOperation(
       (op.kind === "update" || op.kind === "rollback") &&
       fresh.checkpoint.prIntent &&
       !fresh.checkpoint.prResult;
+    const hasRefreshIntent =
+      op.kind === "refresh-update" && fresh.checkpoint.refreshIntent;
     const hasMergeIntent =
       op.kind === "merge" &&
       fresh.checkpoint.mergeIntent &&
@@ -94,6 +100,7 @@ export async function executeOperation(
       code === "outcome_unknown" ||
       hasWriteIntent ||
       hasPrIntent ||
+      hasRefreshIntent ||
       hasMergeIntent
     ) {
       // A timeout can hide a successful external write. One bounded authoritative lookup
@@ -101,11 +108,13 @@ export async function executeOperation(
       if (code !== "outcome_unknown") {
         try {
           const recovered =
-            op.kind === "merge"
-              ? await processMerge(fresh, token)
-              : op.kind === "update" || op.kind === "rollback"
-                ? await processUpdate(fresh, token)
-                : await processDiscussion(fresh, token);
+            op.kind === "refresh-update"
+              ? await processMaintenanceSync(fresh, token)
+              : op.kind === "merge"
+                ? await processMerge(fresh, token)
+                : op.kind === "update" || op.kind === "rollback"
+                  ? await processUpdate(fresh, token)
+                  : await processDiscussion(fresh, token);
           if (op.kind === "merge") {
             await synchronizePullRequests();
             await synchronizePublication();

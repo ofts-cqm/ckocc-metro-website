@@ -25,7 +25,7 @@ export async function requireOperationAdmin(op: Operation) {
   return user;
 }
 
-export async function websitePullRequest(id: string) {
+export async function websitePullRequest(id: string, recoveryHead?: string) {
   const op = await getOperation(id);
   const { owner, repo, branch, key } = repositoryConfig();
   if (
@@ -49,10 +49,23 @@ export async function websitePullRequest(id: string) {
     pr.head.repo?.full_name.toLowerCase() !== key.toLowerCase() ||
     pr.head.ref !== `metro-update/${op.id}` ||
     pr.user?.login !== expectedBotLogin() ||
-    !pr.body?.includes(`<!-- metro-operation:${op.id} -->`) ||
-    pr.head.sha !== op.checkpoint.commitSha
+    !pr.body?.includes(`<!-- metro-operation:${op.id} -->`)
   )
     throw new PipelineError("pr_identity_changed", 409);
+  if (pr.head.sha !== op.checkpoint.commitSha && pr.head.sha !== recoveryHead) {
+    if (op.checkpoint.maintenancePreviousHead === pr.head.sha) {
+      const ref = await client.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${pr.head.ref}`,
+      });
+      if (ref.data.object.sha === op.checkpoint.commitSha) {
+        if (recoveryHead === op.checkpoint.commitSha) return { op, pr, client };
+        throw new PipelineError("maintenance_sync_pending", 503);
+      }
+    }
+    throw new PipelineError("pr_identity_changed", 409);
+  }
   return { op, pr, client };
 }
 
@@ -103,12 +116,23 @@ export async function reviewMapUpdate(id: string) {
   // Read checks even when another rule blocks merging, so the review can show
   // their actual state. Only trust GitHub Actions on the current PR commits.
   try {
+    const refs = [pr.head.sha];
+    if (pr.merge_commit_sha) {
+      const merge = await client.rest.git.getCommit({
+        owner,
+        repo,
+        commit_sha: pr.merge_commit_sha,
+      });
+      // GitHub may briefly report an old test-merge SHA after the branch moves.
+      // Its passing check must never stand in for validation of the new head.
+      if (
+        merge.data.parents?.some((parent) => parent.sha === pr.head.sha) &&
+        merge.data.parents?.some((parent) => parent.sha === current.commit)
+      )
+        refs.push(pr.merge_commit_sha);
+    }
     const results = await Promise.all(
-      [
-        ...new Set(
-          [pr.head.sha, pr.merge_commit_sha].filter((s): s is string => !!s),
-        ),
-      ].map((ref) =>
+      [...new Set(refs)].map((ref) =>
         client.paginate(client.rest.checks.listForRef, {
           owner,
           repo,
@@ -161,12 +185,8 @@ export async function reviewMapUpdate(id: string) {
   else if (pr.draft) review.blockedReason = "pr_draft";
   else if (op.payload.baseMapRevision !== current.manifest.map_revision)
     review.blockedReason = "stale_base_revision";
-  else if (
-    pr.base.sha !== current.commit ||
-    pr.mergeable !== true ||
-    !["clean", "blocked"].includes(pr.mergeable_state)
-  )
-    review.blockedReason = "merge_blocked";
+  else if (pr.base.sha !== current.commit)
+    review.blockedReason = "merge_review_outdated";
   if (review.blockedReason) return review;
   // Restrict-updates rulesets can report "blocked" even for an app allowed to
   // merge through PRs. Validate the candidate/checks below; GitHub's merge API
@@ -200,6 +220,30 @@ export async function reviewMapUpdate(id: string) {
     candidate.manifest.base_map_revision !== current.manifest.map_revision
   )
     throw new PipelineError("pr_identity_changed", 409);
+  const comparison = await client.rest.repos.compareCommits({
+    owner,
+    repo,
+    base: current.commit,
+    head: pr.head.sha,
+  });
+  if (comparison.data.behind_by > 0) {
+    review.blockedReason = "maintenance_sync_required";
+    return review;
+  }
+  if (pr.mergeable === null || pr.mergeable_state === "unknown") {
+    review.blockedReason = "mergeability_pending";
+    return review;
+  }
+  if (pr.mergeable === false || pr.mergeable_state === "dirty") {
+    review.blockedReason = "merge_conflicts";
+    return review;
+  }
+  if (!["clean", "blocked"].includes(pr.mergeable_state)) {
+    review.blockedReason = "merge_blocked";
+    return review;
+  }
+  review.maintenanceUpdated =
+    op.checkpoint.maintenanceBaseCommit === current.commit;
   review.blockedReason =
     review.validation.state === "success" ? null : "map_checks_pending";
   review.canMerge = review.validation.state === "success";

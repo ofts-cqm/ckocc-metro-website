@@ -158,6 +158,26 @@ node --env-file=.env.local --experimental-test-module-mocks --conditions=react-s
 
 This refuses remote/non-development connections and uses a temporary schema that is removed afterward. It verifies actual-size charging for ready uploads, maximum pending reservations, missing-size fallback, deleted exclusion, account/global limits, and concurrent reservations. No Blob objects are written or deleted. `storage_quota_exceeded` on `/api/uploads/reserve` is a byte quota, not a request rate limit; `DISABLE_RATE_LIMITS` does not bypass it. Expired retained uploads count until cleanup confirms deletion. Use normal administrator maintenance for cleanup; do not reset quota counters or erase failed/uncertain operation assets.
 
+### Automatic maintenance catch-up acceptance
+
+Keep the trusted `validate-map` check, strict up-to-date requirement, and separate merge-access rules enabled. Deploy the website changes with the existing runtime App permissions; no migration, new environment variable, Workflows access, or Administration access is required. Pending matching-map PRs catch up through ordinary webhook/read reconciliation or when an administrator opens **Merge PR** review. Wait for fresh validation and then explicitly review/confirm the merge. If the approved map changed, reconcile it in RMP and submit a reviewed update instead.
+
+```sh
+node --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-map-maintenance.ts
+```
+
+This uses and removes an isolated local test schema, with workflow launching stubbed. It checks concurrent deduplication, the outbox, uncertainty preservation, and background eligibility without GitHub writes.
+
+For explicit live acceptance on `ofts-cqm/ckocc-metro-map-test` with the runtime App and local test database:
+
+```sh
+node --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-map-maintenance-live.mts --live
+```
+
+The live script refuses production repository/database targets and PAT authentication, creates one disposable draft PR from approved pre-maintenance history, exercises the real catch-up worker, verifies exact map bytes and fresh trusted checks, and closes/deletes its own draft/branch. It never merges or updates `main`. It needs an existing maintenance-only interval in test history. Results with safe IDs and checkpoints are saved to `/tmp/ckocc-maintenance-live.json`. After an interrupted run, inspect that report and reconcile before repeating any write; close only the test's own draft/branch. A failed cleanup or missing report needs manual lookup first.
+
+On deployment, verify existing pending PR catch-up from a default-branch maintenance push, fresh checks, and visible status transitions. For `outcome_unknown`, use administrator operation diagnostics/retry only to reconcile the recorded ref; do not clear checkpoints. GitHub's merge UI may require an allowed administrator to explicitly use the PR-only permission in **Map merge access**; the independent validation rules must remain enforced.
+
 ### Local PostgreSQL email acceptance
 
 Use only a loopback development/test database. These scripts create/remove isolated schemas and do not send external mail:

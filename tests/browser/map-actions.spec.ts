@@ -7,7 +7,13 @@ async function setup(
   page: Page,
   role = "admin",
   blocked: string | null = null,
-  control = { state: "success", unavailable: false, reviews: 0 },
+  control: {
+    state: string;
+    unavailable: boolean;
+    reviews: number;
+    blocked?: string | null;
+    maintenanceUpdated?: boolean;
+  } = { state: "success", unavailable: false, reviews: 0 },
 ) {
   const writes: { path: string; body: unknown; key: string | undefined }[] = [];
   let didMerge = false;
@@ -95,12 +101,14 @@ async function setup(
             error: { code: "provider_unavailable", message: "Unavailable" },
           },
         });
+      const reason = control.blocked !== undefined ? control.blocked : blocked;
       return route.fulfill({
         json: {
           review: {
+            maintenanceUpdated: control.maintenanceUpdated,
             validation: {
               state:
-                blocked === "map_checks_pending" ? "pending" : control.state,
+                reason === "map_checks_pending" ? "pending" : control.state,
               checkedAt: "2026-10-10T12:00:00Z",
               runs: [],
             },
@@ -113,11 +121,11 @@ async function setup(
             prUrl: "https://github.com/test/map/pull/42",
             merged: path.endsWith("historical"),
             canMerge:
-              !blocked &&
+              !reason &&
               control.state === "success" &&
               !path.endsWith("historical"),
             canRollback: path.endsWith("historical"),
-            blockedReason: blocked,
+            blockedReason: reason,
           },
         },
       });
@@ -435,4 +443,59 @@ test("updates start compact, support keyboard expansion, and stop check polling 
   await expect(item.locator(".map-check-widget")).toBeVisible();
   await page.clock.fastForward(15000);
   await expect.poll(() => control.reviews).toBeGreaterThan(requests);
+});
+
+test("maintenance updates preserve strict checks and explain why passing old checks cannot merge", async ({
+  page,
+}) => {
+  const control: {
+    state: string;
+    unavailable: boolean;
+    reviews: number;
+    blocked: string | null;
+    maintenanceUpdated?: boolean;
+  } = {
+    state: "success",
+    unavailable: false,
+    reviews: 0,
+    blocked: "maintenance_sync_pending",
+  };
+  const writes = await setup(page, "admin", null, control);
+  await page.goto("/en-us/updates");
+  await expandUpdate(page, "Proposed update");
+  await page
+    .getByRole("region", { name: "My updates" })
+    .getByRole("button", { name: "Merge PR", exact: true })
+    .click();
+  const review = page.locator(".map-action-review");
+  await expect(
+    review.getByText(/Updating this PR after maintenance on main/),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("button", { name: "Confirm merge", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    review.getByRole("link", { name: /Open PR and merge requirements/ }),
+  ).toHaveAttribute("href", "https://github.com/test/map/pull/42");
+  control.blocked = "map_checks_pending";
+  control.state = "pending";
+  control.maintenanceUpdated = true;
+  await review.getByRole("button", { name: "Refresh checks" }).click();
+  await expect(
+    review.getByText(/maintenance update is complete/),
+  ).toBeVisible();
+  await expect(
+    review.getByRole("button", { name: "Confirm merge", exact: true }),
+  ).toHaveCount(0);
+  control.blocked = null;
+  control.state = "success";
+  await review.getByRole("button", { name: "Refresh checks" }).click();
+  await expect(
+    review.getByRole("button", { name: "Confirm merge", exact: true }),
+  ).toBeEnabled();
+  expect(writes).toHaveLength(0);
+  await page.screenshot({
+    path: "/tmp/ckocc-maintenance-review.png",
+    fullPage: true,
+  });
 });

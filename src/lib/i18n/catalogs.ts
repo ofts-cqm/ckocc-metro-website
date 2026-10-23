@@ -297,8 +297,7 @@ const en = {
   checkCancelled: "Cancelled",
   checkSkipped: "Skipped",
   checkUnavailable: "Check status unavailable",
-  checkPassedHelp:
-    "Map validation passed for this PR. Review the map before confirming the merge.",
+  checkPassedHelp: "Map validation passed. Merge requirements are shown below.",
   checkRequiredHelp:
     "Merging stays disabled until this check passes and the PR is ready.",
   checkAutoRefresh:
@@ -331,6 +330,19 @@ const en = {
   rollbackUpdate: "Rollback update",
   mergeNotConfigured:
     "Website merging is not enabled. Configure the repository protections and application permissions before enabling it.",
+  maintenanceUpdating:
+    "Updating this PR after maintenance on main. The submitted map files and original starting version are preserved. Fresh validation must pass before merging.",
+  maintenanceRechecking:
+    "The maintenance update is complete. Waiting for validation of the updated PR.",
+  maintenanceFailed:
+    "The PR could not be updated after maintenance. An administrator must inspect the update operation before retrying.",
+  maintenanceUnknown:
+    "The branch update outcome is uncertain. An administrator must reconcile it before another update or merge.",
+  mergeConflicts:
+    "This PR has merge conflicts. An administrator must inspect them before merging.",
+  mergeRefreshRequired:
+    "GitHub is recalculating merge readiness or main has advanced. Refresh the checks to review the latest state.",
+  openMergeDetails: "Open PR and merge requirements on GitHub",
   mergeBlocked:
     "GitHub cannot merge this PR yet. Check required checks, branch freshness, conflicts, and repository rules, then review again.",
   mapChecksPending:
@@ -732,7 +744,7 @@ const cn: Messages = {
   checkCancelled: "已取消",
   checkSkipped: "已跳过",
   checkUnavailable: "无法获取检查状态",
-  checkPassedHelp: "此 PR 已通过地图验证。请审核地图后确认合并。",
+  checkPassedHelp: "地图验证已通过，合并条件显示在下方。",
   checkRequiredHelp: "检查通过且 PR 满足合并条件后才能合并。",
   checkAutoRefresh: "审核面板打开期间，每 15 秒自动刷新。",
   noUpdates: "你的首次更新，从这里开始。",
@@ -759,6 +771,16 @@ const cn: Messages = {
   currentPublishedMap: "当前发布的地图",
   rollbackUpdate: "回滚更新",
   mergeNotConfigured: "尚未启用网站合并。请先配置仓库保护规则和应用权限。",
+  maintenanceUpdating:
+    "正在同步 main 分支的维护更新。提交的地图文件与原始起始版本将保留，更新后的检查通过后才可合并。",
+  maintenanceRechecking: "维护更新已同步，正在等待更新后 PR 的验证结果。",
+  maintenanceFailed: "无法同步维护更新。请管理员检查此更新操作后再重试。",
+  maintenanceUnknown:
+    "分支更新结果尚不确定。管理员确认结果前不能再次更新或合并。",
+  mergeConflicts: "此 PR 存在合并冲突，请管理员检查后再合并。",
+  mergeRefreshRequired:
+    "GitHub 正在重新计算合并状态，或 main 分支已有更新。请刷新检查以查看最新状态。",
+  openMergeDetails: "在 GitHub 查看 PR 与合并条件",
   mergeBlocked:
     "GitHub 暂时无法合并此 PR。请检查必需检查、分支版本、冲突及仓库规则，然后重新审核。",
   mapChecksPending: "必须成功完成 validate-map 检查后才能合并。",
@@ -1138,7 +1160,7 @@ const hk: Messages = {
   checkCancelled: "已取消",
   checkSkipped: "已略過",
   checkUnavailable: "無法取得檢查狀態",
-  checkPassedHelp: "此 PR 已通過地圖驗證。請審核地圖後確認合併。",
+  checkPassedHelp: "地圖驗證已通過，合併條件顯示於下方。",
   checkRequiredHelp: "檢查通過且 PR 符合合併條件後才能合併。",
   checkAutoRefresh: "審核面板開啟期間，每 15 秒自動重新整理。",
   noUpdates: "你的首次更新，由這裏開始。",
@@ -1166,6 +1188,16 @@ const hk: Messages = {
   rollbackUpdate: "回滾更新",
   mergeNotConfigured:
     "尚未啟用網站合併。請先設定儲存庫保護規則及應用程式權限。",
+  maintenanceUpdating:
+    "正在同步 main 分支的維護更新。提交的地圖檔案與原始起始版本將保留，更新後的檢查通過後才可合併。",
+  maintenanceRechecking: "維護更新已同步，正在等待更新後 PR 的驗證結果。",
+  maintenanceFailed: "無法同步維護更新。請管理員檢查此更新操作後再試。",
+  maintenanceUnknown:
+    "分支更新結果尚未確定。管理員確認結果前不能再次更新或合併。",
+  mergeConflicts: "此 PR 存在合併衝突，請管理員檢查後再合併。",
+  mergeRefreshRequired:
+    "GitHub 正在重新計算合併狀態，或 main 分支已有更新。請重新整理檢查以查看最新狀態。",
+  openMergeDetails: "在 GitHub 查看 PR 與合併條件",
   mergeBlocked:
     "GitHub 暫時無法合併此 PR。請檢查必要檢查、分支版本、衝突及儲存庫規則，然後重新審核。",
   mapChecksPending: "必須成功完成 validate-map 檢查後才能合併。",
