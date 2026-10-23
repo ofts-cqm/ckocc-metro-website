@@ -37,6 +37,7 @@ import {
   OperationProgress,
   PageIntro,
   Protected,
+  ReauthDestination,
   readReceipt,
   StatusBadge,
   useApi,
@@ -79,7 +80,9 @@ export function UpdatesPage() {
         description={m.updatesIntro}
       />
       <Protected>
-        <UpdatesWorkspace />
+        <ReauthDestination.Provider value="my-updates">
+          <UpdatesWorkspace />
+        </ReauthDestination.Provider>
       </Protected>
     </div>
   );
@@ -122,6 +125,17 @@ function UpdatesWorkspace() {
   const currentMap = useApi<{ revision: string; commitSha: string }>(
     "/api/map/head",
   );
+  const scrolledToHistory = useRef(false);
+  useEffect(() => {
+    if (!ready || history.loading || scrolledToHistory.current) return;
+    const section = window.location.hash.slice(1);
+    if (section !== "my-updates" && section !== "other-updates") return;
+    const target = document.getElementById(section);
+    if (target) {
+      target.scrollIntoView({ block: "start" });
+      scrolledToHistory.current = true;
+    }
+  }, [ready, history.loading]);
   const validBase =
     !baseCommit.trim() ||
     /^(?:[a-f0-9]{40}|(?:sha256:)?[a-f0-9]{64})$/i.test(baseCommit.trim());
@@ -755,65 +769,70 @@ function UpdatesWorkspace() {
             ]
           : []),
       ].map((group) => (
-        <section
-          className="update-history"
+        <ReauthDestination.Provider
           key={group.title}
-          aria-label={group.title}
+          value={group.other ? "other-updates" : "my-updates"}
         >
-          <div className="section-heading compact">
-            <h2>{group.title}</h2>
-          </div>
-          {history.loading ? (
-            <Loading />
-          ) : history.error ? (
-            <ErrorNotice error={history.error} />
-          ) : group.updates?.length ? (
-            <div className="history-list">
-              {group.updates.map((value) => (
-                <UpdateHistoryItem
-                  key={value.id}
-                  update={value}
-                  other={group.other}
-                  onRevise={() =>
-                    reviseFromHistory(value.id, Boolean(value.canEdit))
-                  }
-                  recoveryDisabled={busy || Boolean(uploading)}
-                  onSuccess={() => {
-                    history.refresh();
-                    currentMap.refresh();
-                  }}
-                />
-              ))}
+          <section
+            id={group.other ? "other-updates" : "my-updates"}
+            className="update-history"
+            aria-label={group.title}
+          >
+            <div className="section-heading compact">
+              <h2>{group.title}</h2>
             </div>
-          ) : (
-            <EmptyState
-              icon={<GitPullRequest size={25} />}
-              title={group.other ? m.noOtherUpdates : m.noUpdates}
-              description={m.noUpdatesBody}
-            />
-          )}
-          {(group.page > 1 || Boolean(group.updates?.length)) && (
-            <div className="pagination">
-              <button
-                className="button button-secondary"
-                disabled={group.page === 1 || history.loading}
-                onClick={() => group.setPage((p) => p - 1)}
-              >
-                {m.previous}
-              </button>
-              <span>
-                {m.page} {group.page} · {UPDATE_HISTORY_PAGE_SIZE} {m.perPage}
-              </span>
-              <button
-                className="button button-secondary"
-                disabled={!group.hasMore || history.loading}
-                onClick={() => group.setPage((p) => p + 1)}
-              >
-                {m.next}
-              </button>
-            </div>
-          )}
-        </section>
+            {history.loading ? (
+              <Loading />
+            ) : history.error ? (
+              <ErrorNotice error={history.error} />
+            ) : group.updates?.length ? (
+              <div className="history-list">
+                {group.updates.map((value) => (
+                  <UpdateHistoryItem
+                    key={value.id}
+                    update={value}
+                    other={group.other}
+                    onRevise={() =>
+                      reviseFromHistory(value.id, Boolean(value.canEdit))
+                    }
+                    recoveryDisabled={busy || Boolean(uploading)}
+                    onSuccess={() => {
+                      history.refresh();
+                      currentMap.refresh();
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                icon={<GitPullRequest size={25} />}
+                title={group.other ? m.noOtherUpdates : m.noUpdates}
+                description={m.noUpdatesBody}
+              />
+            )}
+            {(group.page > 1 || Boolean(group.updates?.length)) && (
+              <div className="pagination">
+                <button
+                  className="button button-secondary"
+                  disabled={group.page === 1 || history.loading}
+                  onClick={() => group.setPage((p) => p - 1)}
+                >
+                  {m.previous}
+                </button>
+                <span>
+                  {m.page} {group.page} · {UPDATE_HISTORY_PAGE_SIZE} {m.perPage}
+                </span>
+                <button
+                  className="button button-secondary"
+                  disabled={!group.hasMore || history.loading}
+                  onClick={() => group.setPage((p) => p + 1)}
+                >
+                  {m.next}
+                </button>
+              </div>
+            )}
+          </section>
+        </ReauthDestination.Provider>
       ))}
     </>
   );

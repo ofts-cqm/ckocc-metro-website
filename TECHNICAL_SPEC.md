@@ -64,6 +64,8 @@ Accounts use email/password login plus an in-game display name. Administrators c
 
 Passwords contain 8–128 characters, including spaces, and are never trimmed or logged. Argon2id uses independent salts with a baseline of 19 MiB, two iterations, parallelism one, and login rehashing when parameters change. Better Auth manages seven-day sessions with 15-minute freshness for administrative mutations. HTTPS cookies are secure, HttpOnly, and SameSite; state-changing browser requests require the configured origin. Disabling accounts and resetting passwords revoke sessions; authorization rechecks active profile and role, including queued work and upload access.
 
+Map-update fresh-authentication prompts return the user to the localized Updates page after sign-in. Submission-form prompts and actions in **My updates** target `#my-updates`; actions in **Updates from others** target `#other-updates`. The page scrolls to the section after the draft and history load, below the sticky header. These are fixed, allowlisted login destinations; existing ordinary login, administrator, settings, and notification destinations retain their behavior. Signing in does not automatically replay a rejected action; the user reviews and retries it.
+
 | Actor                    | Capabilities                                                                                                                                                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Visitor                  | Read the approved map/eligible discussions and submit protected requests/comments.                                                                                                                                        |
@@ -90,7 +92,11 @@ Request/comment and guest-mention limits are configurable positive integers; inv
 
 **Implemented and deployed.** The eight-character minimum supersedes the original twelve-character proposal. Website administrator confirmation now supports merging in addition to direct GitHub review. No migration was introduced for computed name verification.
 
+**2026-10-22 reauthentication return navigation:** Implemented locally; not deployed. Map-update prompts use a section-scoped destination, including errors displayed by nested operation progress. Authentication requirements remain enforced by the existing server handlers.
+
 ### Testing notes
+
+**2026-10-22 reauthentication return navigation:** All 38 focused mocked browser cases passed across focused runs: create/merge/close returns in all three locales, draft preservation, delayed authentication/history loading, no automatic mutation replay, existing login destinations, administrator fallback, and existing invitation/map-action/update-management behavior. Desktop and mobile return-section screenshots were inspected. The 19 unit-test files, typecheck, production build, formatting, and `git diff --check` passed. These are local UI checks; no hosted authentication or GitHub writes were exercised.
 
 Existing unit/browser coverage includes password primitives, bootstrap errors, invitation/settings flows, collaborator restrictions, and account-name enforcement. The 2026-10-06 record established focused login/service connectivity, not a full account acceptance pass. Repeatable acceptance must include invite/reset races, disabled-session and upload revocation, role/public-signup bypass rejection, distinct salted hashes, real challenge success/rejection, and production cookie/origin behavior; see the operator guide. Later 2026-10-21 suite results appear in the email section and do not establish every hosted scenario.
 

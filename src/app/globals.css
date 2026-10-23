@@ -2246,6 +2246,9 @@ code {
 .admin-operations {
   margin-top: 42px;
 }
+.update-history {
+  scroll-margin-top: 112px;
+}
 .history-list {
   border: 1px solid #e1e9d6;
   border-radius: 10px;

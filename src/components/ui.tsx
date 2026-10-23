@@ -582,14 +582,19 @@ export function Notice({
     </div>
   );
 }
+export const ReauthDestination = createContext<
+  "admin" | "my-updates" | "other-updates"
+>("admin");
+
 export function ErrorNotice({ error }: { error: unknown }) {
   const m = useMessages();
   const locale = useLocale();
+  const next = useContext(ReauthDestination);
   return error ? (
     <Notice tone="error">
       {m[errorKey(error)]}
       {errorKey(error) === "freshAuth" && (
-        <Link href={localeHref(locale, "/login?next=admin")}>
+        <Link href={localeHref(locale, `/login?next=${next}`)}>
           {m.signInAgain}
           <ArrowRight size={14} />
         </Link>
