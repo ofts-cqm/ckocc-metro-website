@@ -17,6 +17,8 @@ mock.module("../src/server/db/index.ts", {
     transaction: async (run: (client: unknown) => Promise<unknown>) =>
       run({
         query: async (sql: string, params: unknown[]) => {
+          if (sql.includes("SELECT * FROM metro_operations WHERE id="))
+            return { rows: [{ id: "source", checkpoint: {} }] };
           if (sql.includes("SELECT * FROM metro_operations WHERE kind="))
             return { rows: existing ? [existing] : [] };
           if (sql.includes("INSERT INTO metro_operations")) {

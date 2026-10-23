@@ -145,6 +145,9 @@ export async function synchronizePullRequests() {
         ],
       );
   }
+  const { reconcileTerminalActions } =
+    await import("@/server/operations/reconcile-actions");
+  await reconcileTerminalActions();
   const { queuePendingMaintenance } =
     await import("@/server/operations/maintenance");
   await queuePendingMaintenance();

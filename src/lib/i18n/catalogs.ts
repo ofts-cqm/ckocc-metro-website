@@ -359,6 +359,7 @@ const en = {
   queued: "Queued",
   running: "In progress",
   succeeded: "Completed",
+  superseded: "No longer needed",
   processing: "Processing",
   reviewImage: "Review your map",
   startFailed: "A map update cannot be started right now.",
@@ -456,6 +457,20 @@ const en = {
     "This file does not have the expected RMP document structure or valid version metadata.",
   errorMapDocument:
     "The RMP document has invalid map fields or broken graph references. Export it again from RMP.",
+  closeWithoutMerge: "Close without merge",
+  closePrConfirm:
+    "Close this pull request without merging? Its map changes will not be published.",
+  deleteUpdate: "Delete update",
+  deleteUpdateConfirm:
+    "Delete this update from the history list? Its audit record and any existing GitHub PR will be retained.",
+  editUpdate: "Edit update",
+  savePrChanges: "Save changes to PR",
+  editExistingPrHelp:
+    "Editing the existing PR. Download its submitted JSON below, then select the replacement JSON and PNG. Saving keeps the same PR and requires new validation checks.",
+  updateBusy:
+    "Another action is in progress or its result still needs reconciliation. Check its status before trying again.",
+  updateActionBlocked:
+    "This update has an active PR or another action in progress. Refresh its status before trying again.",
   editAndResubmit: "Edit and resubmit",
   previousUpdateRejection:
     "This entry records the result of a previous submission attempt.",
@@ -794,6 +809,7 @@ const cn: Messages = {
   queued: "已排队",
   running: "处理中",
   succeeded: "已完成",
+  superseded: "已无需执行",
   processing: "处理中",
   reviewImage: "检查地图预览",
   startFailed: "暂时无法开始地图更新。",
@@ -878,6 +894,18 @@ const cn: Messages = {
   errorConflict: "此提交的状态已改变，请刷新状态后重试。",
   errorMapVersion: "此文件不符合 RMP 文档结构，或版本信息无效。",
   errorMapDocument: "RMP 文档的地图字段或图形引用无效。请从 RMP 重新导出。",
+  closeWithoutMerge: "关闭但不合并",
+  closePrConfirm: "关闭此拉取请求而不合并？其中的地图更改不会发布。",
+  deleteUpdate: "删除更新",
+  deleteUpdateConfirm:
+    "从历史列表中删除此更新？审计记录和现有 GitHub PR 将保留。",
+  editUpdate: "编辑更新",
+  savePrChanges: "保存更改到 PR",
+  editExistingPrHelp:
+    "正在编辑现有 PR。请在下方下载已提交的 JSON，然后选择替换的 JSON 和 PNG。保存后保留同一个 PR，并需要重新通过验证。",
+  updateBusy: "另一个操作正在进行，或其结果仍待核实。请检查操作状态后重试。",
+  updateActionBlocked:
+    "此更新有未关闭的 PR 或正在进行的操作。请刷新状态后重试。",
   editAndResubmit: "编辑并重新提交",
   previousUpdateRejection: "此条目记录的是之前一次提交的结果。",
   replaceDraftConfirm:
@@ -1211,6 +1239,7 @@ const hk: Messages = {
   queued: "已排隊",
   running: "處理中",
   succeeded: "已完成",
+  superseded: "已無需執行",
   processing: "處理中",
   reviewImage: "檢查地圖預覽",
   startFailed: "暫時未能開始地圖更新。",
@@ -1295,6 +1324,18 @@ const hk: Messages = {
   errorConflict: "此提交的狀態已改變，請重新載入狀態後再試。",
   errorMapVersion: "此檔案不符合 RMP 文件結構，或版本資訊無效。",
   errorMapDocument: "RMP 文件的地圖欄位或圖形引用無效。請從 RMP 重新匯出。",
+  closeWithoutMerge: "關閉但不合併",
+  closePrConfirm: "關閉此拉取請求而不合併？其中的地圖變更不會發佈。",
+  deleteUpdate: "刪除更新",
+  deleteUpdateConfirm:
+    "從歷史列表中刪除此更新？稽核記錄和現有 GitHub PR 將保留。",
+  editUpdate: "編輯更新",
+  savePrChanges: "儲存變更到 PR",
+  editExistingPrHelp:
+    "正在編輯現有 PR。請在下方下載已提交的 JSON，然後選擇替換的 JSON 和 PNG。儲存後保留同一個 PR，並需要重新通過驗證。",
+  updateBusy: "另一個操作正在進行，或其結果仍待核實。請檢查操作狀態後重試。",
+  updateActionBlocked:
+    "此更新有未關閉的 PR 或正在進行的操作。請重新整理狀態後重試。",
   editAndResubmit: "編輯並重新提交",
   previousUpdateRejection: "此項目記錄的是之前一次提交的結果。",
   replaceDraftConfirm:

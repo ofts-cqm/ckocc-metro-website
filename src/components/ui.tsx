@@ -102,6 +102,10 @@ export function errorKey(error: unknown): MessageKey {
         ? error
         : ""
   ).toUpperCase();
+  if (/UPDATE_BUSY/.test(code)) return "updateBusy";
+  if (/UPDATE_HAS_ACTIVE_PR|UPDATE_NOT_DELETABLE/.test(code))
+    return "updateActionBlocked";
+  if (/PR_CLOSED|PR_ALREADY_MERGED/.test(code)) return "errorConflict";
   if (/MAINTENANCE_SYNC_(REQUIRED|PENDING)/.test(code))
     return "maintenanceUpdating";
   if (/MAINTENANCE_SYNC_FAILED/.test(code)) return "maintenanceFailed";
@@ -768,6 +772,7 @@ export function OperationProgress({
           [
             "needs_reconciliation",
             "closed_unmerged",
+            "superseded",
             "outcome_unknown",
           ].includes(value.operation.status) ||
           (value.operation.status === "failed" && !value.operation.retryAt)
@@ -800,7 +805,7 @@ export function OperationProgress({
   return (
     <div className="operation-progress" aria-live="polite">
       <div className="operation-title">
-        {done ? (
+        {done || status === "superseded" ? (
           <Check size={21} />
         ) : needsAttention ? (
           <CircleAlert size={21} />
@@ -813,9 +818,11 @@ export function OperationProgress({
             ? m.operationFailed
             : status === "outcome_unknown"
               ? m.operationUnknown
-              : done
-                ? m.succeeded
-                : m.operationPending}
+              : status === "superseded"
+                ? m.superseded
+                : done
+                  ? m.succeeded
+                  : m.operationPending}
         </strong>
         <StatusBadge status={status} />
       </div>

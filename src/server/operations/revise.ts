@@ -4,6 +4,11 @@ import { transaction } from "@/server/db";
 import { sessionView, type EditSessionRecord } from "@/server/maps/sessions";
 import { canReviseUpdate, type Operation } from "./store";
 import { PipelineError } from "./errors";
+import {
+  assertInactiveUpdate,
+  assertUpdateIdle,
+  assertUpdateRepository,
+} from "./manage-updates";
 
 export async function reviseUpdate(id: string, user: SessionUser) {
   const recovered = await transaction(async (client) => {
@@ -12,13 +17,16 @@ export async function reviseUpdate(id: string, user: SessionUser) {
       [id],
     );
     const op = found.rows[0];
-    if (!op || op.actor_id !== user.id)
+    if (!op || (op.actor_id !== user.id && user.role !== "admin"))
       throw new PipelineError("operation_not_found", 404);
+    assertUpdateRepository(op);
     if (
       !canReviseUpdate(op) ||
       (op.lease_until && new Date(op.lease_until).getTime() > Date.now())
     )
       throw new PipelineError("operation_not_retryable", 409);
+    await assertUpdateIdle(client, op);
+    if (op.status === "closed_unmerged") await assertInactiveUpdate(op);
     let session: EditSessionRecord;
     if (op.checkpoint.revisedEditSessionId) {
       const existing = await client.query<EditSessionRecord>(

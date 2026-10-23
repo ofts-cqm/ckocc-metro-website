@@ -1,4 +1,4 @@
-import { query } from "@/server/db";
+import { query, transaction } from "@/server/db";
 import { getActiveUser } from "@/server/auth/authorize";
 import {
   currentHead,
@@ -16,6 +16,126 @@ import {
 } from "./store";
 import { PipelineError, statusOf } from "./errors";
 import { readValidatedMap, websitePullRequest } from "./map-actions";
+
+/** Resolve an observed successful ref write without retrying any GitHub mutation. */
+export async function reconcileCompletedMaintenance(
+  updateId: string,
+  actorId: string,
+) {
+  const actor = await getActiveUser(actorId);
+  if (actor.role !== "admin") throw new PipelineError("forbidden", 403);
+  const repository = repositoryConfig();
+  const pending = await query<Operation>(
+    `SELECT * FROM metro_operations WHERE kind='refresh-update' AND payload->>'updateId'=$1
+     AND status='outcome_unknown' AND checkpoint->>'repository'=$2
+     AND checkpoint->>'baseBranch'=$3 AND checkpoint->>'refreshIntent'='true'
+     AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at LIMIT 5`,
+    [updateId, repository.key, repository.branch],
+  );
+  let reconciled = 0;
+  for (const operation of pending.rows) {
+    const plannedHead = operation.checkpoint.refreshCommit;
+    if (typeof plannedHead !== "string" || !/^[a-f0-9]{40}$/.test(plannedHead))
+      continue;
+    let observed: Operation;
+    try {
+      const { op, pr, client } = await websitePullRequest(
+        updateId,
+        plannedHead,
+      );
+      observed = op;
+      const ref = await client.rest.git.getRef({
+        owner: repository.owner,
+        repo: repository.repo,
+        ref: `heads/${pr.head.ref}`,
+      });
+      if (ref.data.object.sha !== plannedHead) continue;
+    } catch {
+      // Missing, changed, or unavailable provider evidence must retain uncertainty.
+      continue;
+    }
+    const recorded = await transaction(async (client) => {
+      // Match action acceptance's lock order; do not steal a worker's live lease.
+      const source = (
+        await client.query<Operation>(
+          "SELECT * FROM metro_operations WHERE id=$1 FOR UPDATE",
+          [updateId],
+        )
+      ).rows[0];
+      const current = (
+        await client.query<Operation & { lease_until: Date | null }>(
+          "SELECT * FROM metro_operations WHERE id=$1 FOR UPDATE",
+          [operation.id],
+        )
+      ).rows[0];
+      if (
+        !source ||
+        !current ||
+        source.checkpoint.deletedAt ||
+        current.kind !== "refresh-update" ||
+        current.status !== "outcome_unknown" ||
+        !["awaiting_review", "merged", "published", "closed_unmerged"].includes(
+          source.status,
+        ) ||
+        source.kind !== observed.kind ||
+        source.result.prNumber !== observed.result.prNumber ||
+        source.actor_id !== current.actor_id ||
+        source.payload.baseMapRevision !== current.payload.baseMapRevision ||
+        (current.lease_until &&
+          new Date(current.lease_until).getTime() > Date.now()) ||
+        current.checkpoint.refreshCommit !== plannedHead ||
+        current.checkpoint.refreshIntent !== true ||
+        current.payload.updateId !== updateId ||
+        current.payload.headSha !== operation.payload.headSha ||
+        current.payload.baseCommit !== operation.payload.baseCommit ||
+        current.checkpoint.repository !== repository.key ||
+        current.checkpoint.baseBranch !== repository.branch ||
+        source.checkpoint.repository !== repository.key ||
+        source.checkpoint.baseBranch !== repository.branch ||
+        ![current.payload.headSha, plannedHead].includes(
+          source.checkpoint.commitSha,
+        )
+      )
+        return false;
+      await client.query(
+        "UPDATE metro_operations SET checkpoint=checkpoint||$2::jsonb,updated_at=now() WHERE id=$1",
+        [
+          updateId,
+          JSON.stringify({
+            originalCommitSha:
+              source.checkpoint.originalCommitSha ?? current.payload.headSha,
+            commitSha: plannedHead,
+            maintenancePreviousHead: current.payload.headSha,
+            maintenanceBaseCommit: current.payload.baseCommit,
+            maintenanceOperationId: current.id,
+          }),
+        ],
+      );
+      await client.query(
+        "UPDATE metro_operations SET status='succeeded',error_code=NULL,result=result||$2::jsonb,updated_at=now() WHERE id=$1",
+        [
+          current.id,
+          JSON.stringify({
+            updateId,
+            headSha: plannedHead,
+            baseCommit: current.payload.baseCommit,
+          }),
+        ],
+      );
+      await client.query(
+        "UPDATE metro_outbox SET state='done',updated_at=now() WHERE operation_id=$1",
+        [current.id],
+      );
+      await client.query(
+        "INSERT INTO metro_pipeline_audit(actor_id,action,operation_id) VALUES($1,'reconcile-refresh',$2)",
+        [actorId, current.id],
+      );
+      return true;
+    });
+    if (recorded) reconciled++;
+  }
+  return reconciled;
+}
 
 /** Durable and deduplicated across webhook, review, and repair requests. */
 export async function queueMaintenanceSync(
@@ -68,11 +188,17 @@ export async function queuePendingMaintenance() {
       if (statusOf(error) === 401) continue;
       throw error;
     }
-    await queueMaintenanceSync(
-      source.id,
-      source.checkpoint.commitSha,
-      current.commit,
-    );
+    try {
+      await queueMaintenanceSync(
+        source.id,
+        source.checkpoint.commitSha,
+        current.commit,
+      );
+    } catch (error) {
+      if (error instanceof PipelineError && error.code === "update_busy")
+        continue;
+      throw error;
+    }
   }
 }
 

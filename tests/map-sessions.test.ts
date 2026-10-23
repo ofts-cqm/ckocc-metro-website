@@ -393,7 +393,7 @@ test("both history groups return at most ten updates and indicate more results",
   assert.equal(lastPage.othersHasMore, false);
 });
 
-test("history exposes owner recovery only for safe failures and usable replacement drafts", async () => {
+test("history exposes owner and administrator recovery only for safe failures and usable replacement drafts", async () => {
   userRole = "admin";
   for (const [eligible, patch] of [
     [true, {}],
@@ -406,6 +406,7 @@ test("history exposes owner recovery only for safe failures and usable replaceme
       true,
       {
         checkpoint: { revisedEditSessionId: "replacement" },
+        revised_owner_id: "player",
         revised_status: "draft",
         revised_expires_at: new Date(Date.now() + 100000),
       },
@@ -414,6 +415,7 @@ test("history exposes owner recovery only for safe failures and usable replaceme
       false,
       {
         checkpoint: { revisedEditSessionId: "replacement" },
+        revised_owner_id: "player",
         revised_status: "draft",
         revised_expires_at: new Date(Date.now() - 100000),
       },
@@ -439,6 +441,6 @@ test("history exposes owner recovery only for safe failures and usable replaceme
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.updates[0].canRevise, eligible);
-    assert.equal(body.otherUpdates[0].canRevise, false);
+    assert.equal(body.otherUpdates[0].canRevise, eligible);
   }
 });

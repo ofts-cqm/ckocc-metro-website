@@ -26,6 +26,8 @@ mock.module("../src/server/db/index.ts", {
     transaction: async (run: (client: unknown) => Promise<unknown>) =>
       run({
         query: async (sql: string, params: any[]) => {
+          if (sql.startsWith("SELECT id FROM metro_operations"))
+            return { rows: [] };
           if (sql.startsWith("SELECT * FROM metro_operations"))
             return { rows: [op] };
           if (sql.startsWith("SELECT * FROM metro_edit_sessions"))
@@ -67,7 +69,11 @@ beforeEach(() => {
     kind: "update",
     actor_id: user.id,
     status: "failed",
-    checkpoint: { autoRetry: false },
+    checkpoint: {
+      autoRetry: false,
+      repository: "test/map",
+      baseBranch: "main",
+    },
     result: {},
     lease_until: null,
     payload: {
@@ -113,17 +119,17 @@ test("recovery keeps text and original base, creates one empty editable session 
 });
 test("recovery rejects another owner and every possibly written or active operation", async () => {
   await assert.rejects(
-    reviseUpdate(op.id, { ...user, id: "other", role: "admin" }),
+    reviseUpdate(op.id, { ...user, id: "other", role: "collaborator" }),
     { code: "operation_not_found" },
   );
   for (const key of ["commitSha", "branchIntent", "prIntent", "prResult"]) {
-    op.checkpoint = { [key]: true };
+    op.checkpoint = { repository: "test/map", baseBranch: "main", [key]: true };
     assert.equal(canReviseUpdate(op), false);
     await assert.rejects(reviseUpdate(op.id, user), {
       code: "operation_not_retryable",
     });
   }
-  op.checkpoint = {};
+  op.checkpoint = { repository: "test/map", baseBranch: "main" };
   op.status = "outcome_unknown";
   await assert.rejects(reviseUpdate(op.id, user), {
     code: "operation_not_retryable",
@@ -139,4 +145,15 @@ test("recovery rejects another owner and every possibly written or active operat
     code: "operation_not_retryable",
   });
   assert.deepEqual(writes, []);
+});
+
+test("administrator can recover another contributor's failed update into an admin-owned draft", async () => {
+  const result = await reviseUpdate(op.id, {
+    ...user,
+    id: "admin",
+    role: "admin",
+  });
+  assert.equal(sessions[result.editSession.id].owner_id, "admin");
+  assert.equal(op.actor_id, "owner");
+  assert.equal(result.summary, "Keep summary");
 });

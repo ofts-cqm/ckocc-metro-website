@@ -56,6 +56,7 @@ type UpdateDraft = {
   pngName: string;
   idempotencyKey: string | null;
   submittedOperation: string | null;
+  editingUpdateId?: string | null;
 };
 const emptyDraft: UpdateDraft = {
   session: null,
@@ -292,14 +293,19 @@ function UpdatesWorkspace() {
       setBusy(false);
     }
   }
-  async function revise(operationId = receipt?.id) {
+  async function revise(operationId = receipt?.id, edit = false) {
     if (!operationId) return;
     const value = await api<{
       editSession: EditSession;
       summary: string;
       details: string;
       issueNumbers: number[];
-    }>(`/api/operations/${operationId}/revise`, { method: "POST" });
+    }>(
+      edit
+        ? `/api/admin/updates/${operationId}/edit`
+        : `/api/operations/${operationId}/revise`,
+      { method: "POST" },
+    );
     setDraft({
       ...emptyDraft,
       session: value.editSession,
@@ -307,18 +313,19 @@ function UpdatesWorkspace() {
       details: value.details,
       issueNumbers: value.issueNumbers,
       idempotencyKey: crypto.randomUUID(),
+      editingUpdateId: edit ? operationId : null,
     });
     setRecovered(true);
     setError(null);
     history.refresh();
   }
-  async function reviseFromHistory(operationId: string) {
+  async function reviseFromHistory(operationId: string, edit = false) {
     if (busy || uploadInFlight.current) return;
     if (!receipt && draft.session && !window.confirm(m.replaceDraftConfirm))
       return;
     setBusy(true);
     try {
-      await revise(operationId);
+      await revise(operationId, edit);
     } finally {
       setBusy(false);
     }
@@ -439,7 +446,11 @@ function UpdatesWorkspace() {
         </div>
       ) : (
         <form ref={formRef} className="update-form" onSubmit={submit}>
-          {recovered && <Notice>{m.draftRecovered}</Notice>}
+          {draft.editingUpdateId ? (
+            <Notice>{m.editExistingPrHelp}</Notice>
+          ) : (
+            recovered && <Notice>{m.draftRecovered}</Notice>
+          )}
           <section className="edit-session-bar">
             <div>
               <span>{m.startVersion}</span>
@@ -711,7 +722,11 @@ function UpdatesWorkspace() {
                 type="submit"
                 disabled={busy || !hasFiles || stale || Boolean(uploading)}
               >
-                {busy ? m.submitting : m.createPr}
+                {busy
+                  ? m.submitting
+                  : draft.editingUpdateId
+                    ? m.savePrChanges
+                    : m.createPr}
                 <GitPullRequest size={17} />
               </button>
             </div>
@@ -759,7 +774,9 @@ function UpdatesWorkspace() {
                   key={value.id}
                   update={value}
                   other={group.other}
-                  onRevise={() => reviseFromHistory(value.id)}
+                  onRevise={() =>
+                    reviseFromHistory(value.id, Boolean(value.canEdit))
+                  }
                   recoveryDisabled={busy || Boolean(uploading)}
                   onSuccess={() => {
                     history.refresh();
@@ -821,6 +838,43 @@ function UpdateHistoryItem({
   const [expanded, setExpanded] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState<unknown>(null);
+  const [actionReceipt, setActionReceipt] = useState<Receipt | null>(null);
+  const closeKey = useRef<string | null>(null);
+  useEffect(() => {
+    setActionReceipt(null);
+    closeKey.current = null;
+  }, [value.status]);
+  async function manage(action: "close" | "delete") {
+    if (
+      recovering ||
+      !window.confirm(
+        action === "close" ? m.closePrConfirm : m.deleteUpdateConfirm,
+      )
+    )
+      return;
+    setRecovering(true);
+    setRecoveryError(null);
+    try {
+      if (action === "close") {
+        closeKey.current ??= crypto.randomUUID();
+        const result = await api<{ operation: { id: string } }>(
+          `/api/admin/updates/${value.id}/close`,
+          {
+            method: "POST",
+            headers: { "Idempotency-Key": closeKey.current },
+          },
+        );
+        setActionReceipt(readReceipt(result));
+      } else {
+        await api(`/api/updates/${value.id}`, { method: "DELETE" });
+        onSuccess();
+      }
+    } catch (error) {
+      setRecoveryError(error);
+    } finally {
+      setRecovering(false);
+    }
+  }
   return (
     <details
       className="history-item update-accordion"
@@ -872,27 +926,60 @@ function UpdateHistoryItem({
           </>
         )}
         <ErrorNotice error={recoveryError} />
-        {!other && value.canRevise && (
-          <button
-            className="button button-secondary"
-            type="button"
-            disabled={recovering || recoveryDisabled}
-            onClick={async () => {
-              setRecovering(true);
-              setRecoveryError(null);
-              try {
-                await onRevise();
-              } catch (error) {
-                setRecoveryError(error);
-              } finally {
-                setRecovering(false);
-              }
-            }}
-          >
-            {recovering ? m.loading : m.editAndResubmit}
-          </button>
+        <div className="update-management-actions">
+          {!actionReceipt && (value.canRevise || value.canEdit) && (
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={recovering || recoveryDisabled}
+              onClick={async () => {
+                setRecovering(true);
+                setRecoveryError(null);
+                try {
+                  await onRevise();
+                } catch (error) {
+                  setRecoveryError(error);
+                } finally {
+                  setRecovering(false);
+                }
+              }}
+            >
+              {recovering
+                ? m.loading
+                : value.canEdit
+                  ? m.editUpdate
+                  : m.editAndResubmit}
+            </button>
+          )}
+          {!actionReceipt &&
+            user?.role === "admin" &&
+            value.prNumber &&
+            value.status === "awaiting_review" && (
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={recovering || recoveryDisabled}
+                onClick={() => manage("close")}
+              >
+                {m.closeWithoutMerge}
+              </button>
+            )}
+          {!actionReceipt && value.canDelete && (
+            <button
+              type="button"
+              className="text-button danger"
+              disabled={recovering || recoveryDisabled}
+              onClick={() => manage("delete")}
+            >
+              <Trash2 size={15} /> {m.deleteUpdate}
+            </button>
+          )}
+        </div>
+        {actionReceipt && (
+          <OperationProgress receipt={actionReceipt} onSuccess={onSuccess} />
         )}
         {user?.role === "admin" &&
+          !actionReceipt &&
           value.prNumber &&
           ["awaiting_review", "merged", "published"].includes(value.status) && (
             <MapActions

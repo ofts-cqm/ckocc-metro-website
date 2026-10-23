@@ -114,6 +114,7 @@ export type OperationStatus =
   | "closed_unmerged"
   | "published"
   | "succeeded"
+  | "superseded"
   | "failed"
   | "outcome_unknown";
 export type OperationView = {
@@ -162,6 +163,8 @@ export type MapUpdateReview = {
   blockedReason: string | null;
 };
 export type UpdateSummary = {
+  canDelete?: boolean;
+  canEdit?: boolean;
   canRevise?: boolean;
   authorName?: string | null;
   isCurrentPublication?: boolean;

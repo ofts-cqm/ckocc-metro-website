@@ -14,6 +14,8 @@ export interface Operation {
     | "update"
     | "rollback"
     | "merge"
+    | "close-update"
+    | "edit-update"
     | "sync"
     | "refresh-update";
   scope: string;
@@ -101,7 +103,7 @@ export async function acceptOperation(input: {
       const duplicate = await client.query<Operation>(
         `SELECT * FROM metro_operations WHERE kind=$1 AND payload->>'updateId'=$2
          AND payload->>($3::text)=$4 AND checkpoint->>'repository'=$5
-         AND status NOT IN ('needs_reconciliation','closed_unmerged')
+         AND status NOT IN ('needs_reconciliation','closed_unmerged','superseded')
          AND (status<>'failed' OR checkpoint->>'prIntent'='true' OR checkpoint ? 'prResult'
               OR checkpoint->>'mergeIntent'='true' OR checkpoint ? 'mergeResult')
          ORDER BY created_at DESC LIMIT 1`,
@@ -115,7 +117,28 @@ export async function acceptOperation(input: {
       );
       if (duplicate.rows[0]) return duplicate.rows[0];
     }
-    if (input.kind === "update") {
+    if (
+      ["merge", "close-update", "edit-update", "refresh-update"].includes(
+        input.kind,
+      )
+    ) {
+      const target = await client.query<Operation>(
+        "SELECT * FROM metro_operations WHERE id=$1 FOR UPDATE",
+        [input.payload.updateId],
+      );
+      if (!target.rows[0] || target.rows[0].checkpoint.deletedAt)
+        throw new PipelineError("update_not_found", 404);
+      const pending = await client.query(
+        `SELECT id FROM metro_operations WHERE payload->>'updateId'=$1
+         AND kind IN ('merge','close-update','edit-update','refresh-update')
+         AND (status IN ('accepted','validating','creating_pr','outcome_unknown')
+           OR (status='failed' AND checkpoint->>'autoRetry'='true')
+           OR lease_until>now()) LIMIT 1`,
+        [input.payload.updateId],
+      );
+      if (pending.rows.length) throw new PipelineError("update_busy", 409);
+    }
+    if (input.kind === "update" || input.kind === "edit-update") {
       const session = await client.query<{ status: string; owner_id: string }>(
         "SELECT status,owner_id FROM metro_edit_sessions WHERE id=$1 AND expires_at>now() FOR UPDATE",
         [input.payload.editSessionId],
@@ -168,12 +191,14 @@ export async function acceptOperation(input: {
     await client.query("INSERT INTO metro_outbox(operation_id) VALUES($1)", [
       result.rows[0].id,
     ]);
-    if (input.kind === "merge" || input.kind === "rollback")
+    if (
+      ["merge", "rollback", "close-update", "edit-update"].includes(input.kind)
+    )
       await client.query(
         "INSERT INTO metro_pipeline_audit(actor_id,action,operation_id) VALUES($1,$2,$3)",
         [input.actorId, input.kind, result.rows[0].id],
       );
-    if (input.kind === "update")
+    if (input.kind === "update" || input.kind === "edit-update")
       await client.query(
         "UPDATE metro_edit_sessions SET status='submitted' WHERE id=$1",
         [input.payload.editSessionId],
@@ -190,17 +215,32 @@ export async function getOperation(id: string) {
   if (!result.rows[0]) throw new PipelineError("operation_not_found", 404);
   return result.rows[0];
 }
-/** Only failures before any external write may become editable replacements. */
+/** Safe pre-write failures and verified closed PRs may become replacement drafts. */
 export function canReviseUpdate(op: Operation) {
   return (
     op.kind === "update" &&
-    op.status === "failed" &&
-    op.checkpoint.autoRetry !== true &&
-    !["commitSha", "branchIntent", "prIntent", "prResult"].some((key) =>
-      Boolean(op.checkpoint[key]),
-    ) &&
-    !op.result.prNumber &&
-    !op.result.prUrl
+    !op.checkpoint.deletedAt &&
+    (op.status === "closed_unmerged" ||
+      (["failed", "needs_reconciliation"].includes(op.status) &&
+        op.checkpoint.autoRetry !== true &&
+        !["commitSha", "branchIntent", "prIntent", "prResult"].some((key) =>
+          Boolean(op.checkpoint[key]),
+        ) &&
+        !op.result.prNumber &&
+        !op.result.prUrl))
+  );
+}
+
+export function canDeleteUpdate(op: Operation) {
+  return (
+    ["update", "rollback"].includes(op.kind) &&
+    !op.checkpoint.deletedAt &&
+    (["closed_unmerged", "merged", "published"].includes(op.status) ||
+      (["failed", "needs_reconciliation"].includes(op.status) &&
+        op.checkpoint.autoRetry !== true &&
+        !op.checkpoint.prIntent &&
+        !op.checkpoint.prResult &&
+        !op.result.prNumber))
   );
 }
 
@@ -224,6 +264,7 @@ export function operationView(op: Operation): OperationView {
 }
 
 export const terminalStates = [
+  "superseded",
   "succeeded",
   "awaiting_review",
   "needs_reconciliation",
@@ -237,7 +278,7 @@ export async function leaseOperation(
   const token = randomUUID();
   const result = await query<Operation>(
     `UPDATE metro_operations SET lease_token=$2,lease_until=now()+interval '15 minutes',attempts=attempts+1,updated_at=now()
-    WHERE id=$1 AND NOT(checkpoint ? 'revisedEditSessionId') AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) AND NOT(status=ANY($3::text[])) RETURNING *`,
+    WHERE id=$1 AND NOT(checkpoint ? 'revisedEditSessionId') AND NOT(checkpoint ? 'deletedAt') AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) AND NOT(status=ANY($3::text[])) RETURNING *`,
     [id, token, terminalStates],
   );
   return result.rows[0] ? { op: result.rows[0], token } : null;
@@ -315,13 +356,38 @@ export async function retryOperation(id: string, actorId: string) {
     if (!op) throw new PipelineError("operation_not_found", 404);
     if (
       op.checkpoint.revisedEditSessionId ||
+      op.checkpoint.deletedAt ||
       !["failed", "outcome_unknown", "accepted"].includes(op.status)
     )
       throw new PipelineError("operation_not_retryable", 409);
+    if (
+      ["merge", "close-update", "edit-update", "refresh-update"].includes(
+        op.kind,
+      )
+    ) {
+      const source = await client.query<Operation>(
+        "SELECT * FROM metro_operations WHERE id=$1 FOR UPDATE",
+        [op.payload.updateId],
+      );
+      if (!source.rows[0] || source.rows[0].checkpoint.deletedAt)
+        throw new PipelineError("operation_not_retryable", 409);
+      const pending = await client.query(
+        `SELECT id FROM metro_operations WHERE payload->>'updateId'=$1 AND id<>$2
+         AND kind IN ('merge','close-update','edit-update','refresh-update')
+         AND (status IN ('accepted','validating','creating_pr','outcome_unknown')
+           OR (status='failed' AND checkpoint->>'autoRetry'='true') OR lease_until>now()) LIMIT 1`,
+        [op.payload.updateId, op.id],
+      );
+      if (pending.rows.length) throw new PipelineError("update_busy", 409);
+    }
     // Preserve every checkpoint, particularly write intent. Unknown writes only reconcile.
+    const requeueAction =
+      ["merge", "close-update", "edit-update", "refresh-update"].includes(
+        op.kind,
+      ) && op.status === "failed";
     await client.query(
-      "UPDATE metro_operations SET next_attempt_at=now(),error_code=NULL WHERE id=$1",
-      [id],
+      "UPDATE metro_operations SET next_attempt_at=now(),error_code=NULL,status=CASE WHEN $2 THEN 'accepted' ELSE status END WHERE id=$1",
+      [id, requeueAction],
     );
     await client.query(
       `INSERT INTO metro_outbox(operation_id) VALUES($1) ON CONFLICT(operation_id) DO UPDATE SET state='pending',next_attempt_at=now(),updated_at=now()`,
@@ -331,6 +397,6 @@ export async function retryOperation(id: string, actorId: string) {
       "INSERT INTO metro_pipeline_audit(actor_id,action,operation_id) VALUES($1,'retry',$2)",
       [actorId, id],
     );
-    return op;
+    return requeueAction ? { ...op, status: "accepted" as const } : op;
   });
 }

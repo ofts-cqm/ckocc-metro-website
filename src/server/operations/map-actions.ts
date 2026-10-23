@@ -26,13 +26,21 @@ export async function requireOperationAdmin(op: Operation) {
 }
 
 export async function websitePullRequest(id: string, recoveryHead?: string) {
-  const op = await getOperation(id);
-  const { owner, repo, branch, key } = repositoryConfig();
+  return inspectWebsitePullRequest(await getOperation(id), recoveryHead);
+}
+
+export async function recordedPullRequest(id: string) {
+  return inspectRecordedPullRequest(await getOperation(id));
+}
+
+/** Closing only needs the persisted PR identity, not approval of its mutable contents. */
+export async function inspectRecordedPullRequest(op: Operation) {
+  const { owner, repo, key } = repositoryConfig();
   if (
     !["update", "rollback"].includes(op.kind) ||
     op.checkpoint.repository !== key ||
-    op.checkpoint.baseBranch !== branch ||
-    !Number.isSafeInteger(op.result.prNumber)
+    !Number.isSafeInteger(op.result.prNumber) ||
+    Number(op.result.prNumber) <= 0
   )
     throw new PipelineError("update_not_found", 404);
   const client = await github();
@@ -44,11 +52,27 @@ export async function websitePullRequest(id: string, recoveryHead?: string) {
     })
   ).data;
   if (
+    pr.number !== op.result.prNumber ||
     pr.base.repo.full_name.toLowerCase() !== key.toLowerCase() ||
+    pr.user?.login !== expectedBotLogin()
+  )
+    throw new PipelineError("pr_identity_changed", 409);
+  return { op, pr, client };
+}
+
+/** Accept a locked source row so transaction callers do not acquire a second pool client. */
+export async function inspectWebsitePullRequest(
+  op: Operation,
+  recoveryHead?: string,
+) {
+  const { owner, repo, branch, key } = repositoryConfig();
+  if (op.checkpoint.baseBranch !== branch)
+    throw new PipelineError("update_not_found", 404);
+  const { pr, client } = await inspectRecordedPullRequest(op);
+  if (
     pr.base.ref !== branch ||
     pr.head.repo?.full_name.toLowerCase() !== key.toLowerCase() ||
     pr.head.ref !== `metro-update/${op.id}` ||
-    pr.user?.login !== expectedBotLogin() ||
     !pr.body?.includes(`<!-- metro-operation:${op.id} -->`)
   )
     throw new PipelineError("pr_identity_changed", 409);

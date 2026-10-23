@@ -23,6 +23,8 @@ import { invalidateIssues } from "@/server/github/issues";
 import { AppError } from "@/server/http";
 import { getActiveUser } from "@/server/auth/authorize";
 import { repositoryConfig } from "@/server/github/client";
+import { processCloseUpdate } from "./manage-updates";
+import { processEditUpdate } from "./edit-update";
 
 export async function executeOperation(
   id: string,
@@ -42,7 +44,7 @@ export async function executeOperation(
       if (op.kind === "sync" && actor.role !== "admin")
         throw new PipelineError("forbidden", 403);
     }
-    if (op.kind === "merge" || op.kind === "rollback")
+    if (["merge", "rollback", "close-update", "edit-update"].includes(op.kind))
       await requireOperationAdmin(op);
     if (op.kind === "close-issue" && !op.actor_id)
       throw new PipelineError("unauthorized", 401);
@@ -51,6 +53,12 @@ export async function executeOperation(
       await finishOperation(id, token, "succeeded", result);
     } else if (op.kind === "close-issue") {
       const result = await processCloseIssue(op, token);
+      await finishOperation(id, token, "succeeded", result);
+    } else if (op.kind === "close-update" || op.kind === "edit-update") {
+      const result =
+        op.kind === "close-update"
+          ? await processCloseUpdate(op, token)
+          : await processEditUpdate(op, token);
       await finishOperation(id, token, "succeeded", result);
     } else if (op.kind === "merge") {
       const result = await processMerge(op, token);
@@ -78,7 +86,7 @@ export async function executeOperation(
   } catch (error) {
     const fresh = await getOperation(id);
     const code = error instanceof AppError ? error.code : safeErrorCode(error);
-    if (code === "stale_base_revision") {
+    if (code === "stale_base_revision" && !fresh.checkpoint.editIntent) {
       await finishOperation(id, token, "needs_reconciliation", {}, code);
       return { retry: false, delay: 0 };
     }
@@ -101,6 +109,8 @@ export async function executeOperation(
       hasWriteIntent ||
       hasPrIntent ||
       hasRefreshIntent ||
+      (op.kind === "close-update" && fresh.checkpoint.closeIntent) ||
+      (op.kind === "edit-update" && fresh.checkpoint.editIntent) ||
       hasMergeIntent
     ) {
       // A timeout can hide a successful external write. One bounded authoritative lookup
@@ -108,13 +118,17 @@ export async function executeOperation(
       if (code !== "outcome_unknown") {
         try {
           const recovered =
-            op.kind === "refresh-update"
-              ? await processMaintenanceSync(fresh, token)
-              : op.kind === "merge"
-                ? await processMerge(fresh, token)
-                : op.kind === "update" || op.kind === "rollback"
-                  ? await processUpdate(fresh, token)
-                  : await processDiscussion(fresh, token);
+            op.kind === "close-update"
+              ? await processCloseUpdate(fresh, token)
+              : op.kind === "edit-update"
+                ? await processEditUpdate(fresh, token)
+                : op.kind === "refresh-update"
+                  ? await processMaintenanceSync(fresh, token)
+                  : op.kind === "merge"
+                    ? await processMerge(fresh, token)
+                    : op.kind === "update" || op.kind === "rollback"
+                      ? await processUpdate(fresh, token)
+                      : await processDiscussion(fresh, token);
           if (op.kind === "merge") {
             await synchronizePullRequests();
             await synchronizePublication();

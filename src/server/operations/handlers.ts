@@ -73,6 +73,7 @@ import {
   getOperation,
   operationView,
   canReviseUpdate,
+  canDeleteUpdate,
   sameDigest,
   retryOperation,
   type Operation,
@@ -397,16 +398,24 @@ export const getSource = route(async (request, context) => {
     uuid.parse(await param(context, "id")),
     user,
   );
+  const editing = await query<Operation>(
+    "SELECT * FROM metro_operations WHERE checkpoint->>'amendEditSessionId'=$1 AND kind IN ('update','rollback')",
+    [session.id],
+  );
+  const sourceCommit = editing.rows[0]
+    ? String(editing.rows[0].checkpoint.amendHeadSha)
+    : session.base_commit;
   const manifest = parseManifest(
-    await readFileAt(session.base_commit, MAP_PATHS.manifest, 64 * 1024),
+    await readFileAt(sourceCommit, MAP_PATHS.manifest, 64 * 1024),
   );
   const source = await readFileAt(
-    session.base_commit,
+    sourceCommit,
     MAP_PATHS.json,
     MAP_LIMITS.json,
   );
   if (
-    manifest.map_revision !== session.base_revision ||
+    (editing.rows[0] ? manifest.base_map_revision : manifest.map_revision) !==
+      session.base_revision ||
     sha256(source) !== manifest.files.json.sha256
   )
     throw new PipelineError("manifest_checksum_mismatch");
@@ -500,9 +509,11 @@ export const postUpdate = route(async (request) => {
     [scope, idempotencyKey],
   );
   let payload: UpdateInput;
-  if (prior.rows[0])
+  let operationKind: "update" | "edit-update" = "update";
+  if (prior.rows[0]) {
     payload = { ...prior.rows[0].payload, ...input } as UpdateInput;
-  else {
+    if (prior.rows[0].kind === "edit-update") operationKind = "edit-update";
+  } else {
     const session = await ownedEditSession(input.editSessionId, user, true);
     const uploads = await query<UploadRecord>(
       "SELECT DISTINCT ON(kind) * FROM metro_uploads WHERE edit_session_id=$1 AND owner_id=$2 AND status='ready' ORDER BY kind,created_at DESC",
@@ -526,9 +537,20 @@ export const postUpdate = route(async (request) => {
       baseCommit: session.base_commit,
       baseMapRevision: session.base_revision,
     };
+    const source = await query<Operation>(
+      "SELECT * FROM metro_operations WHERE checkpoint->>'amendEditSessionId'=$1 AND kind IN ('update','rollback')",
+      [session.id],
+    );
+    if (source.rows[0]) {
+      await requireAdmin(request);
+      operationKind = "edit-update";
+      payload.updateId = source.rows[0].id;
+      payload.headSha = source.rows[0].checkpoint.amendHeadSha;
+    }
   }
+  if (operationKind === "edit-update") await requireAdmin(request);
   const operation = await acceptOperation({
-    kind: "update",
+    kind: operationKind,
     scope,
     key: idempotencyKey,
     actorId: user.id,
@@ -563,23 +585,24 @@ export const getUpdates = route(async (request) => {
     author_name: string | null;
     revised_status: string | null;
     revised_expires_at: Date | null;
+    revised_owner_id: string | null;
   };
   const repository = repositoryConfig().key;
   const result = await query<AuthoredOperation>(
-    `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at
+    `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at, revised.owner_id AS revised_owner_id
      FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
      LEFT JOIN metro_edit_sessions revised ON revised.id::text=o.checkpoint->>'revisedEditSessionId'
-     WHERE o.kind IN ('update','rollback') AND o.actor_id=$1 AND o.checkpoint->>'repository'=$2
+     WHERE o.kind IN ('update','rollback') AND NOT(o.checkpoint ? 'deletedAt') AND o.actor_id=$1 AND o.checkpoint->>'repository'=$2
      ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
     [user.id, repository, (historyPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
   );
   const others =
     user.role === "admin"
       ? await query<AuthoredOperation>(
-          `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at
+          `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at, revised.owner_id AS revised_owner_id
      FROM metro_operations o LEFT JOIN "user" u ON u.id=o.actor_id
      LEFT JOIN metro_edit_sessions revised ON revised.id::text=o.checkpoint->>'revisedEditSessionId'
-     WHERE o.kind IN ('update','rollback') AND o.actor_id IS DISTINCT FROM $1 AND o.checkpoint->>'repository'=$2
+     WHERE o.kind IN ('update','rollback') AND NOT(o.checkpoint ? 'deletedAt') AND o.actor_id IS DISTINCT FROM $1 AND o.checkpoint->>'repository'=$2
      ORDER BY o.created_at DESC, o.id DESC LIMIT ${UPDATE_HISTORY_PAGE_SIZE + 1} OFFSET $3`,
           [user.id, repository, (othersPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
         )
@@ -590,11 +613,17 @@ export const getUpdates = route(async (request) => {
   );
   const summary = (op: AuthoredOperation): UpdateSummary => ({
     authorName: op.author_name,
+    canDelete: canDeleteUpdate(op),
+    canEdit:
+      user.role === "admin" &&
+      op.status === "awaiting_review" &&
+      Boolean(op.result.prNumber),
     canRevise:
-      op.actor_id === user.id &&
+      (op.actor_id === user.id || user.role === "admin") &&
       canReviseUpdate(op) &&
       (!op.checkpoint.revisedEditSessionId ||
-        (op.revised_status === "draft" &&
+        (op.revised_owner_id === user.id &&
+          op.revised_status === "draft" &&
           op.revised_expires_at !== null &&
           new Date(op.revised_expires_at).getTime() > Date.now())),
     id: op.id,
@@ -652,6 +681,10 @@ export const getUpdates = route(async (request) => {
 
 export const getAdminOperations = route(async (request) => {
   await requireAdmin(request, { fresh: false });
+  if (githubConfigured()) {
+    const { reconcileTerminalActions } = await import("./reconcile-actions");
+    await reconcileTerminalActions();
+  }
   const result = await query<Operation>(
     "SELECT * FROM metro_operations ORDER BY created_at DESC LIMIT 100",
   );

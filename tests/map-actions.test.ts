@@ -45,6 +45,10 @@ let blobContents: string[] = [];
 let commitParents: string[] = [];
 let treeBase = "";
 let treePaths: string[] = [];
+let prBody: string | undefined, prTitle: string | undefined;
+let prOverrides: Record<string, unknown> = {};
+let closeCalls = 0,
+  metadataCalls = 0;
 let mergeCalls = 0,
   createCalls = 0,
   publicationCalls = 0,
@@ -100,8 +104,10 @@ function pr() {
     },
     base: { sha: head, ref: "main", repo: { full_name: "test/map" } },
     user: { login: "metro[bot]" },
-    body: `<!-- metro-operation:${sourceId} -->`,
+    body: prBody ?? `<!-- metro-operation:${sourceId} -->`,
+    title: prTitle ?? "Map update: Map",
     merge_commit_sha: "4".repeat(40),
+    ...prOverrides,
   };
 }
 mock.module("../src/server/auth/config.ts", {
@@ -123,6 +129,12 @@ mock.module("../src/server/auth/config.ts", {
 mock.module("../src/server/db/index.ts", {
   namedExports: {
     query: async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("payload=payload||$3::jsonb")) {
+        Object.assign(source.payload, JSON.parse(String(params[2])));
+        Object.assign(source.checkpoint, JSON.parse(String(params[3])));
+        Object.assign(source.result, JSON.parse(String(params[4])));
+        return { rowCount: 1, rows: [{ id: source.id }] };
+      }
       if (sql.includes("checkpoint=checkpoint||$3::jsonb")) {
         assert.equal(params[0], source.id);
         if (params[1] !== source.checkpoint.commitSha)
@@ -186,6 +198,20 @@ const client = {
     },
     pulls: {
       get: async () => ({ data: pr() }),
+      update: async (input: {
+        state?: string;
+        body?: string;
+        title?: string;
+      }) => {
+        if (input.state) closeCalls++;
+        else metadataCalls++;
+        if (timeoutMode === "before") throw new Error("timeout before write");
+        if (input.state) state = input.state;
+        if (input.body) prBody = input.body;
+        if (input.title) prTitle = input.title;
+        if (timeoutMode === "after") throw new Error("timeout after write");
+        return { data: pr() };
+      },
       listFiles: async () => ({
         data: changedPaths.map((filename) => ({
           filename,
@@ -264,7 +290,7 @@ const client = {
         if (refreshMode === "after") throw new Error("timeout after write");
       },
       getRef: async ({ ref }: { ref: string }) => {
-        if (action.kind === "refresh-update")
+        if (action.kind === "refresh-update" || action.kind === "edit-update")
           return { data: { object: { sha: prHead } } };
         if (!branches[ref]) throw { status: 404 };
         return { data: { object: { sha: branches[ref] } } };
@@ -422,6 +448,9 @@ beforeEach(() => {
   process.env.WEBSITE_MERGES_ENABLED = "true";
   signedIn = active = validSession = protection = allowMerge = mergeable = true;
   role = "admin";
+  prBody = prTitle = undefined;
+  prOverrides = {};
+  closeCalls = metadataCalls = 0;
   sessionDate = new Date();
   head = baseCommit;
   cachedPrHead = undefined;
@@ -946,4 +975,193 @@ test("new map PRs use current maintenance tree without changing the contributor'
   assert.equal(recorded.base_commit_sha, oldCommit);
   assert.equal(recorded.base_map_revision, manifests[baseCommit].map_revision);
   assert.equal(action.checkpoint.prParentCommit, baseCommit);
+});
+
+function editingAction() {
+  source.status = "awaiting_review";
+  source.actor_id = "other-contributor";
+  source.checkpoint.amendEditSessionId = "edit";
+  action = makeOp("edit-update");
+  action.payload = {
+    ...source.payload,
+    updateId: sourceId,
+    headSha: headCommit,
+    editSessionId: "edit",
+    jsonUploadId: "json",
+    pngUploadId: "png",
+    summary: "Corrected summary",
+    details: "Admin changes",
+    issueNumbers: [],
+  };
+}
+test("admin edits another contributor's existing PR with an atomic map commit and refreshed metadata", async () => {
+  editingAction();
+  await executeOperation(actionId);
+  assert.deepEqual(finished, ["succeeded"]);
+  assert.equal(refUpdates, 1);
+  assert.equal(createCalls, 0);
+  assert.equal(metadataCalls, 1);
+  assert.equal(mergeCalls, 0);
+  assert.deepEqual(commitParents, [headCommit]);
+  assert.deepEqual(treePaths, Object.values(paths));
+  assert.equal(
+    Buffer.from(blobContents[0], "base64").equals(
+      files[headCommit][paths.json],
+    ),
+    true,
+  );
+  assert.equal(
+    Buffer.from(blobContents[1], "base64").equals(files[headCommit][paths.png]),
+    true,
+  );
+  assert.equal(source.actor_id, "other-contributor");
+  assert.equal(source.result.prNumber, 42);
+  assert.equal(source.payload.summary, "Corrected summary");
+  assert.equal(source.checkpoint.commitSha, "5".repeat(40));
+  const manifest = JSON.parse(
+    Buffer.from(blobContents[2], "base64").toString(),
+  );
+  assert.equal(manifest.operation_id, sourceId);
+  assert.equal(manifest.base_commit_sha, baseCommit);
+  assert.match(prBody!, /Admin changes/);
+});
+for (const mode of ["before", "after"] as const) {
+  test(`edit reconciles ref timeout ${mode} write without a second branch update`, async () => {
+    editingAction();
+    refreshMode = mode;
+    await executeOperation(actionId);
+    assert.deepEqual(finished, [
+      mode === "after" ? "succeeded" : "outcome_unknown",
+    ]);
+    await executeOperation(actionId);
+    assert.equal(refUpdates, 1);
+    assert.equal(metadataCalls, mode === "after" ? 1 : 0);
+  });
+  test(`edit reconciles metadata timeout ${mode} write without repeating it`, async () => {
+    editingAction();
+    timeoutMode = mode;
+    await executeOperation(actionId);
+    assert.deepEqual(finished, [
+      mode === "after" ? "succeeded" : "outcome_unknown",
+    ]);
+    await executeOperation(actionId);
+    assert.equal(metadataCalls, 1);
+    assert.equal(refUpdates, 1);
+  });
+  test(`close reconciles timeout ${mode} write without a second close`, async () => {
+    action = makeOp("close-update");
+    action.payload = { updateId: sourceId };
+    prHead = "9".repeat(40);
+    prBody = "Edited externally without the operation marker";
+    timeoutMode = mode;
+    await executeOperation(actionId);
+    assert.deepEqual(finished, [
+      mode === "after" ? "succeeded" : "outcome_unknown",
+    ]);
+    await executeOperation(actionId);
+    assert.equal(closeCalls, 1);
+    assert.equal(mergeCalls, 0);
+  });
+}
+test("queued edit and close recheck administrator role and active account", async () => {
+  for (const kind of ["edit-update", "close-update"] as const) {
+    editingAction();
+    action.kind = kind;
+    role = "collaborator";
+    await executeOperation(actionId);
+    role = "admin";
+    active = false;
+    await executeOperation(actionId);
+    active = true;
+  }
+  assert.equal(refUpdates + closeCalls + metadataCalls, 0);
+  assert.deepEqual(finished, ["failed", "failed", "failed", "failed"]);
+});
+test("edit rejects changed PR head and stale map base before writing", async () => {
+  editingAction();
+  prHead = "9".repeat(40);
+  await executeOperation(actionId);
+  assert.deepEqual(finished, ["failed"]);
+  prHead = headCommit;
+  head = oldCommit;
+  await executeOperation(actionId);
+  assert.deepEqual(finished, ["failed", "needs_reconciliation"]);
+  assert.equal(refUpdates + metadataCalls, 0);
+});
+test("close HTTP route enforces admin, fresh authentication and same origin", async () => {
+  const { POST } =
+    await import("../src/app/api/admin/updates/[id]/close/route");
+  role = "collaborator";
+  assert.equal((await POST(request("close", {}), context)).status, 403);
+  role = "admin";
+  sessionDate = new Date(Date.now() - 16 * 60_000);
+  assert.equal((await POST(request("close", {}), context)).status, 401);
+  sessionDate = new Date();
+  assert.equal(
+    (await POST(request("close", {}, "https://other.invalid"), context)).status,
+    403,
+  );
+  assert.equal((await POST(request("close", {}), context)).status, 202);
+  assert.equal(action.kind, "close-update");
+  assert.equal(closeCalls, 0);
+});
+
+test("close accepts changed PR content and failed validation while merge/edit identity checks remain strict", async () => {
+  const { POST } =
+    await import("../src/app/api/admin/updates/[id]/close/route");
+  prHead = "9".repeat(40);
+  checkConclusion = "failure";
+  mergeable = false;
+  draft = true;
+  head = oldCommit;
+  changedPaths = ["unexpected.txt"];
+  files[prHead] = { [paths.json]: Buffer.from("invalid JSON") };
+  await assert.rejects(actions.websitePullRequest(sourceId), {
+    code: "pr_identity_changed",
+  });
+  assert.equal((await POST(request("close", {}), context)).status, 202);
+  // Mutable metadata can change again between acceptance and execution.
+  prBody = "Edited externally without the operation marker";
+  prOverrides = {
+    base: { ref: "different-base", repo: { full_name: "test/map" } },
+    head: { sha: "8".repeat(40), ref: "different-branch", repo: null },
+  };
+  await executeOperation(actionId);
+  assert.deepEqual(finished, ["succeeded"]);
+  assert.equal(closeCalls, 1);
+  assert.equal(mergeCalls + refUpdates + publicationCalls, 0);
+  assert.equal(state, "closed");
+  await assert.rejects(actions.websitePullRequest(sourceId), {
+    code: "pr_identity_changed",
+  });
+});
+for (const [name, override] of [
+  ["repository", { base: { ref: "main", repo: { full_name: "other/repo" } } }],
+  ["creator", { user: { login: "someone-else" } }],
+  ["number", { number: 99 }],
+] as const) {
+  test(`close still rejects a mismatched PR ${name}`, async () => {
+    const { POST } =
+      await import("../src/app/api/admin/updates/[id]/close/route");
+    prOverrides = override;
+    assert.equal((await POST(request("close", {}), context)).status, 409);
+    action = makeOp("close-update");
+    action.payload = { updateId: sourceId };
+    await executeOperation(actionId);
+    assert.deepEqual(finished, ["failed"]);
+    assert.equal(closeCalls, 0);
+  });
+}
+test("close rejects a merged PR and reconciles an already closed changed PR without writing", async () => {
+  const { POST } =
+    await import("../src/app/api/admin/updates/[id]/close/route");
+  merged = true;
+  assert.equal((await POST(request("close", {}), context)).status, 409);
+  merged = false;
+  state = "closed";
+  prHead = "9".repeat(40);
+  assert.equal((await POST(request("close", {}), context)).status, 202);
+  await executeOperation(actionId);
+  assert.deepEqual(finished, ["succeeded"]);
+  assert.equal(closeCalls, 0);
 });

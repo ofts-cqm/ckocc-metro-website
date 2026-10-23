@@ -3660,6 +3660,16 @@ code {
   margin-top: 1rem;
   min-width: 0;
 }
+.update-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.update-management-actions:empty {
+  display: none;
+}
 .map-action-review {
   margin-top: 1rem;
   padding: 1rem;
