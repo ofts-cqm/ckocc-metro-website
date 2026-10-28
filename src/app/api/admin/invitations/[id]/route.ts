@@ -6,6 +6,8 @@ import { AppError, errorResponse, json } from "@/server/http";
 import { enforceSameOrigin } from "@/server/security";
 
 export const runtime = "nodejs";
+// Revokes an unused invitation selected by an administrator.
+// The invitation management workflow invokes this and records an audit entry.
 export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },

@@ -10,6 +10,7 @@ export const languageNames = {
   "zh-cn": "简体中文",
   "zh-hk": "繁體中文（香港）",
 } as const;
+/** Checks route locale segments before selecting a translated page catalog. */
 export function isLocale(value: string): value is Locale {
   return locales.includes(value as Locale);
 }

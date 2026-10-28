@@ -27,6 +27,8 @@ export interface UpdateInput extends Record<string, unknown> {
   baseMapRevision: string;
 }
 
+/** Validates uploaded map files and creates the author’s website pull request.
+ * The map update API queues this operation after edit session and upload checks. */
 export async function processUpdate(op: Operation, leaseToken: string) {
   if (!op.actor_id) throw new PipelineError("unauthorized", 401);
   const user =
@@ -39,6 +41,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   const { owner, repo, branch } = repositoryConfig();
   expectedBotLogin();
   const head = `metro-update/${op.id}`;
+  // Recover an already created PR before considering another provider write.
   const existing = await client.rest.pulls.list({
     owner,
     repo,
@@ -68,6 +71,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   await checkpoint(op.id, leaseToken, {}, "validating");
   await assertFresh(input.baseMapRevision);
   let json: Buffer, png: Buffer;
+  // Read either the rollback source or staged upload pair.
   if (op.kind === "rollback") {
     const approved = await resolveMapBase(String(op.payload.restoreCommit));
     const restored = await readValidatedMap(approved.commit);
@@ -94,6 +98,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
       throw new PipelineError("invalid_upload");
     [json, png] = await Promise.all(uploads.map(readStaged));
   }
+  // Validate the exact staged bytes and construct the next map manifest.
   const validation = await validatePair(json, png);
   if (validation.revision === input.baseMapRevision)
     throw new PipelineError("unchanged_map", 409);
@@ -125,7 +130,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
       },
     },
   };
-  // Pin author/manifest text before object creation so a profile rename cannot change a retry.
+  // Pin author and manifest text so profile changes cannot alter a retry.
   const pinnedManifest =
     (op.checkpoint.manifest as MapManifest | undefined) ?? manifest;
   if (
@@ -141,6 +146,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
     "creating_pr",
   );
   let commitSha = op.checkpoint.commitSha as string | undefined;
+  // Create immutable Git objects and remember their commit before moving a ref.
   if (!commitSha) {
     // Keep the recorded edit base in the manifest; choose a current parent when
     // only maintenance has advanced main. This does not merge map documents.
@@ -209,6 +215,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   if (op.kind === "rollback") await requireOperationAdmin(op);
   if (!(await getActiveUser(op.actor_id)))
     throw new PipelineError("unauthorized", 401);
+  // Move the operation branch only after a final freshness and account check.
   await checkpoint(op.id, leaseToken, { branchIntent: true });
   try {
     const ref = await client.rest.git.getRef({
@@ -231,6 +238,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   await assertFresh(input.baseMapRevision);
   if (op.kind === "rollback") await requireOperationAdmin(op);
   await checkpoint(op.id, leaseToken, { prIntent: true, branch: head });
+  // Create the PR only after checking for an existing or uncertain write.
   const pr = await client.rest.pulls.create({
     owner,
     repo,

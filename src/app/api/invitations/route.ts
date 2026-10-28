@@ -4,6 +4,8 @@ import { requireInvitationAttempt } from "@/server/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Inspects an invitation token for the account activation page.
+// The invitation workflow invokes this before the recipient redeems it.
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireInvitationAttempt(request);

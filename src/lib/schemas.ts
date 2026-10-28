@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+/** Builds trimmed text validation with control-character and length limits.
+ * Request, comment, and update payload schemas reuse it at the API boundary. */
 const safeText = (max: number, required = true) =>
   z
     .string()
@@ -10,8 +12,11 @@ const safeText = (max: number, required = true) =>
     )
     .refine((value) => Array.from(value).length <= max, "too_long")
     .refine((value) => !required || value.length > 0, "required");
+/** Restricts short form fields to a single line during API validation. */
 const singleLine = (max: number) =>
   safeText(max).refine((value) => !/[\r\n\t]/u.test(value), "invalid_text");
+/** Converts empty optional fields to null before single-line validation.
+ * Line and station forms use it before creating their request payloads. */
 const optionalText = (max: number) =>
   z.preprocess(
     (value) =>

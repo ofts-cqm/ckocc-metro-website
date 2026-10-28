@@ -8,12 +8,24 @@ export const MAP_LIMITS = {
   pixels: 200_000_000,
   axis: 24_576,
 } as const;
+/** Hashes exact map asset bytes or revision inputs.
+ * Map manifest validation and upload checks use it.
+ */
 export const sha256 = (data: Buffer | string) =>
   createHash("sha256").update(data).digest("hex");
+/** Derives the combined revision from JSON and PNG hashes.
+ * Map validation and manifest checks use it.
+ */
 export const mapRevision = (json: string, png: string) =>
   `sha256:${sha256(`${json}\n${png}\n`)}`;
+/** Recognizes nested JSON records during map upload validation.
+ * RMP structure checks use it before reading graph or style fields.
+ */
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
+/** Accepts only finite numeric coordinates and version fields.
+ * RMP structure checks use it throughout JSON validation.
+ */
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -22,12 +34,18 @@ const crcTable = Array.from({ length: 256 }, (_, index) => {
     value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
   return value >>> 0;
 });
+/** Computes a PNG chunk checksum.
+ * PNG validation calls it for every chunk.
+ */
 function crc32(bytes: Buffer) {
   let crc = 0xffffffff;
   for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+/** Recognizes the structural Rail Map Painter document format.
+ * JSON upload validation calls it before deeper checks.
+ */
 export function detectFormat(document: unknown) {
   return object(document) &&
     finite(document.version) &&
@@ -41,7 +59,11 @@ export function detectFormat(document: unknown) {
     : null;
 }
 
+/** Checks bounded RMP JSON and graph references.
+ * Uploads and map publication call it on original bytes.
+ */
 export function validateDocument(bytes: Buffer) {
+  // Decode the bounded original JSON and confirm its editor structure.
   if (bytes.length > MAP_LIMITS.json)
     throw new PipelineError("file_too_large", 413);
   let doc: unknown;
@@ -71,6 +93,7 @@ export function validateDocument(bytes: Buffer) {
     throw new PipelineError("invalid_map_document");
   const nodes = new Set<string>();
   const edges = new Set<string>();
+  // Check key uniqueness and edge references before accepting the graph.
   for (const node of doc.graph.nodes) {
     if (
       !object(node) ||
@@ -103,8 +126,11 @@ export function validateDocument(bytes: Buffer) {
   return { format, nodes: nodes.size, edges: edges.size };
 }
 
-/** Check every chunk boundary and reject APNG; sharp then decodes all scanlines. */
+/** Check every chunk boundary and reject APNG; sharp then decodes all scanlines.
+ * Uploads and map publication call it on original bytes.
+ */
 export async function validatePng(bytes: Buffer) {
+  // Walk chunk boundaries, checksums, and animation markers on the original PNG.
   if (bytes.length > MAP_LIMITS.png)
     throw new PipelineError("file_too_large", 413);
   if (
@@ -134,6 +160,7 @@ export async function validatePng(bytes: Buffer) {
   }
   if (!ended || !dataSeen) throw new PipelineError("invalid_png");
   try {
+    // Decode every scanline and produce a bounded overview for publication.
     const options = {
       limitInputPixels: MAP_LIMITS.pixels,
       sequentialRead: true,
@@ -191,6 +218,9 @@ export interface MapManifest {
   };
 }
 
+/** Validates a map manifest and its declared revision.
+ * Approved HEAD reads and publication call it.
+ */
 export function parseManifest(bytes: Buffer): MapManifest {
   let m: MapManifest;
   try {
@@ -239,6 +269,9 @@ export function parseManifest(bytes: Buffer): MapManifest {
   return m;
 }
 
+/** Checks JSON, PNG, and optional manifest agree exactly.
+ * Map submission and publication use it before acceptance.
+ */
 export async function validatePair(
   json: Buffer,
   png: Buffer,

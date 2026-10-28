@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
-/** Account mutations are rare; one transaction lock gives all invite/reset/admin paths a safe order. */
+/** Account mutations are rare; one transaction lock gives all invite/reset/admin paths a safe order.
+ * Identity transactions acquire this lock before changing credentials.
+ */
 export async function lockIdentityStore(client: PoolClient): Promise<void> {
   await client.query("SELECT pg_advisory_xact_lock(2147031999)");
 }
@@ -9,6 +11,7 @@ export async function lockIdentityStore(client: PoolClient): Promise<void> {
 /** Server/CLI adapter for the documented Better Auth credential schema.
  * The caller owns the transaction so account creation and invitation consumption are atomic.
  * Better Auth remains responsible for hashing configuration, sign-in, cookies, and sessions.
+ * Invitation redemption calls it inside its transaction.
  */
 export async function createCredentialAccount(
   client: PoolClient,
@@ -35,6 +38,9 @@ export async function createCredentialAccount(
   return id;
 }
 
+/** Invalidates existing sessions by advancing the auth version.
+ * Password resets and email changes call it after updating identity.
+ */
 export async function revokeUserSessions(
   client: PoolClient,
   userId: string,

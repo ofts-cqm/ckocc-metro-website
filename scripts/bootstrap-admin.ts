@@ -20,7 +20,8 @@ import {
 
 let stage: BootstrapStage = "reading account details";
 
-/** Read a password from a terminal without echoing it or accepting command-line secrets. */
+/** Reads a bootstrap password from an interactive terminal without echoing it.
+ * The administrator setup command uses it for entry and confirmation. */
 function hiddenPassword(label: string): Promise<string> {
   if (!stdin.isTTY || !stdout.isTTY) throw new BootstrapError("terminal");
   stdout.write(label);
@@ -29,6 +30,7 @@ function hiddenPassword(label: string): Promise<string> {
   stdin.setEncoding("utf8");
   return new Promise((resolve, reject) => {
     let value = "";
+    // Restore terminal state before resolving an entry or rejecting cancellation.
     const finish = (error?: Error) => {
       stdin.off("data", onData);
       stdin.setRawMode(false);
@@ -37,6 +39,7 @@ function hiddenPassword(label: string): Promise<string> {
       if (error) reject(error);
       else resolve(value);
     };
+    // Handle keystrokes locally so the bootstrap password never enters process args.
     const onData = (data: string) => {
       for (const character of data) {
         if (character === "\u0003") {
@@ -58,6 +61,8 @@ function hiddenPassword(label: string): Promise<string> {
   });
 }
 
+/** Creates the first administrator account through the interactive CLI.
+ * npm run admin:bootstrap invokes it after migrations and database setup. */
 async function main(): Promise<void> {
   if (!stdin.isTTY || !stdout.isTTY) throw new BootstrapError("terminal");
   const terminal = createInterface({ input: stdin, output: stdout });
@@ -84,6 +89,7 @@ async function main(): Promise<void> {
   } finally {
     terminal.close();
   }
+  // Confirm no administrator exists before asking for or hashing a password.
   stage = "checking the database";
   if (!process.env.DATABASE_URL) throw new BootstrapError("configured");
   const existing = await getPool().query(
@@ -99,6 +105,7 @@ async function main(): Promise<void> {
     throw new BootstrapError("confirmation");
   stage = "hashing the password";
   const passwordHash = await hashPassword(password);
+  // Lock identity creation and recheck inside one transaction to prevent races.
   stage = "saving the administrator";
   const id = await transaction(async (client) => {
     await lockIdentityStore(client);

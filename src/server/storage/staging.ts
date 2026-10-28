@@ -25,11 +25,17 @@ export interface UploadRecord {
   status: string;
   expires_at: Date;
 }
+/** Requires the private staging Blob credential.
+ * Upload reservation, reading, and cleanup use it.
+ */
 function stagingToken() {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) throw new PipelineError("storage_not_configured", 503);
   return token;
 }
+/** Reserves bounded private Blob capacity for an edit session.
+ * The upload API calls it before issuing a client upload token.
+ */
 export async function reserveUpload(
   user: SessionUser,
   editSessionId: string,
@@ -65,6 +71,9 @@ export async function reserveUpload(
   });
 }
 
+/** Loads a nondeleted staging upload record.
+ * Upload callbacks and completion handlers use it.
+ */
 export async function uploadRecord(id: string) {
   const result = await query<UploadRecord>(
     "SELECT * FROM metro_uploads WHERE id=$1",
@@ -75,6 +84,9 @@ export async function uploadRecord(id: string) {
   return result.rows[0];
 }
 
+/** Verifies Blob metadata and content before marking an asset ready.
+ * The upload completion callback and API call it.
+ */
 export async function completeUpload(id: string, user?: SessionUser) {
   const upload = await uploadRecord(id);
   if (user) {
@@ -105,6 +117,9 @@ export async function completeUpload(id: string, user?: SessionUser) {
   return result.rows[0] ?? upload;
 }
 
+/** Handles authenticated client upload tokens and completion.
+ * The staging upload API delegates Blob callbacks here.
+ */
 export async function handleStagingUpload(
   request: Request,
   body: HandleUploadBody,
@@ -113,6 +128,7 @@ export async function handleStagingUpload(
     request,
     body,
     token: stagingToken(),
+    // Authorize a short-lived upload token against the reserved draft asset.
     onBeforeGenerateToken: async (pathname, clientPayload) => {
       enforceSameOrigin(request);
       const user = await requireUser(request);
@@ -143,7 +159,7 @@ export async function handleStagingUpload(
         tokenPayload: JSON.stringify({ uploadId: upload.id }),
       };
     },
-    // handleUpload validates the provider signature before invoking this callback.
+    // After provider signature validation, validate bytes before marking the asset ready.
     onUploadCompleted: async ({ tokenPayload }) => {
       const { uploadId } = JSON.parse(tokenPayload || "{}") as {
         uploadId: string;
@@ -155,6 +171,9 @@ export async function handleStagingUpload(
   });
 }
 
+/** Streams exact private Blob bytes within the asset limit.
+ * Upload completion and map submission use it.
+ */
 export async function readStaged(upload: UploadRecord): Promise<Buffer> {
   const result = await get(upload.pathname, {
     access: "private",
@@ -180,6 +199,9 @@ export async function readStaged(upload: UploadRecord): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** Deletes expired or terminal unreferenced staged assets.
+ * The maintenance workflow calls it in bounded batches.
+ */
 export async function cleanupStaging() {
   // Keep every asset referenced by queued/unknown/failed operations for operator recovery.
   const expired =
@@ -199,11 +221,17 @@ export async function cleanupStaging() {
   return deleted;
 }
 
+/** Checks for a distinct public publication Blob credential.
+ * Map publication preflight uses it.
+ */
 export function publicationStorageConfigured(): boolean {
   const token = process.env.PUBLISHED_BLOB_READ_WRITE_TOKEN?.trim();
   return Boolean(token && token !== process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
+/** Publishes immutable original and overview PNGs by revision.
+ * Default-branch publication calls it after validating assets.
+ */
 export async function publishImage(
   revision: string,
   png: Buffer,
@@ -213,6 +241,9 @@ export async function publishImage(
   if (!token || !publicationStorageConfigured())
     throw new PipelineError("storage_not_configured", 503);
   const prefix = `maps/${revision.replace("sha256:", "")}`;
+  /** Reuses an existing revision Blob or creates it once.
+   * publishImage calls it for original and overview images.
+   */
   async function immutable(path: string, data: Buffer) {
     // A revision path always has identical validated content; reuse after workflow interruption.
     try {

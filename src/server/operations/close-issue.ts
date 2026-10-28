@@ -2,6 +2,8 @@ import { github, repositoryConfig } from "@/server/github/client";
 import { assertEligibleIssue, invalidateIssues } from "@/server/github/issues";
 import { checkpoint, type Operation } from "./store";
 
+/** Closes a tracked GitHub issue for an accepted administrator action.
+ * The close issue API queues this worker after authorization and idempotency checks. */
 export async function processCloseIssue(op: Operation, token: string) {
   if (op.checkpoint.closeResult) {
     await invalidateIssues();

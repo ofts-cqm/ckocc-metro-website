@@ -1,6 +1,9 @@
 import "server-only";
 import { ZodError } from "zod";
 
+/** Carries a public error code and HTTP status through backend workflows.
+ * API route catch blocks convert it to a safe response with errorResponse.
+ */
 export class AppError extends Error {
   public retryAfter?: number;
   constructor(
@@ -14,6 +17,9 @@ export class AppError extends Error {
   }
 }
 
+/** Turns validation and application errors into safe JSON responses.
+ * API route catch blocks use it for consistent failures.
+ */
 export function errorResponse(error: unknown): Response {
   if (error instanceof AppError)
     return Response.json(
@@ -65,12 +71,18 @@ export function errorResponse(error: unknown): Response {
   );
 }
 export const apiError = errorResponse;
+/** Returns an uncached JSON response.
+ * API routes use it for successful reads and mutations.
+ */
 export function json(data: unknown, status = 200) {
   return Response.json(data, {
     status,
     headers: { "Cache-Control": "no-store" },
   });
 }
+/** Reads and parses a size-limited UTF-8 JSON body.
+ * Write APIs use it before validating request schemas.
+ */
 export async function readJson(
   request: Request,
   maxBytes = 128 * 1024,

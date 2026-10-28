@@ -40,10 +40,16 @@ const certificates = new Map<
   { certificate: X509Certificate; expires: number }
 >();
 
+/** Creates a safe SNS feedback rejection error.
+ * Webhook parsing and signature checks use it.
+ */
 function invalid(code = "invalid_email_feedback", status = 400): AppError {
   return new AppError(code, "The email feedback request was rejected.", status);
 }
 
+/** Derives the allowed SNS host from the configured topic.
+ * SNS URL validation uses it to prevent untrusted fetches.
+ */
 function snsHostname(topic: string): string {
   const match =
     /^arn:(aws|aws-cn|aws-us-gov):sns:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:[A-Za-z0-9_-]+$/.exec(
@@ -53,6 +59,9 @@ function snsHostname(topic: string): string {
   return `sns.${match[2]}.amazonaws.com${match[1] === "aws-cn" ? ".cn" : ""}`;
 }
 
+/** Checks that an SNS URL stays on the expected HTTPS host.
+ * Certificate and subscription URL validators call it.
+ */
 function trustedUrl(value: string, topic: string): URL {
   let url: URL;
   try {
@@ -74,6 +83,9 @@ function trustedUrl(value: string, topic: string): URL {
   return url;
 }
 
+/** Restricts the SNS signing certificate URL shape.
+ * Envelope verification calls it before fetching the certificate.
+ */
 export function validateSigningCertUrl(value: string, topic: string): URL {
   const url = trustedUrl(value, topic);
   if (
@@ -84,6 +96,9 @@ export function validateSigningCertUrl(value: string, topic: string): URL {
   return url;
 }
 
+/** Checks every parameter in an SNS subscription URL.
+ * The feedback webhook calls it before confirming the topic.
+ */
 export function validateConfirmationUrl(envelope: SnsEnvelope): URL {
   if (!envelope.SubscribeURL || !envelope.Token) throw invalid();
   const url = trustedUrl(envelope.SubscribeURL, envelope.TopicArn);
@@ -107,6 +122,9 @@ export function validateConfirmationUrl(envelope: SnsEnvelope): URL {
   return url;
 }
 
+/** Builds the canonical SNS message bytes for signature checks.
+ * Envelope verification uses it for Notification and confirmation events.
+ */
 export function snsSigningString(envelope: SnsEnvelope): string {
   const fields: (keyof SnsEnvelope)[] =
     envelope.Type === "Notification"
@@ -136,6 +154,9 @@ export function snsSigningString(envelope: SnsEnvelope): string {
     .join("");
 }
 
+/** Reads a stream within a byte limit as strict UTF-8.
+ * The webhook and certificate fetch use it for untrusted bodies.
+ */
 async function boundedText(
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number,
@@ -167,6 +188,9 @@ async function boundedText(
   }
 }
 
+/** Validates the topic, certificate, and SNS signature.
+ * The email feedback webhook calls it before trusting any event.
+ */
 export async function verifySnsEnvelope(
   payload: unknown,
   expectedTopic: string,
@@ -227,6 +251,9 @@ const recipientSchema = z.object({ emailAddress: z.string().email().max(320) });
 const addressesSchema = z.array(recipientSchema).min(1).max(1000);
 const mailSchema = z.object({ messageId: z.string().min(1).max(256) });
 
+/** Classifies SES delivery, bounce, and complaint payloads.
+ * Verified SNS notifications pass through it before persistence.
+ */
 export function parseSesFeedback(message: string): EmailFeedback {
   let payload: unknown;
   try {
@@ -309,7 +336,9 @@ export function parseSesFeedback(message: string): EmailFeedback {
   return result;
 }
 
-/** Receipts remain joinable by SES ID even when feedback arrives before send persistence. */
+/** Receipts remain joinable by SES ID even when feedback arrives before send persistence.
+ * The feedback webhook calls it after SNS verification.
+ */
 export async function persistEmailFeedback(
   envelope: SnsEnvelope,
   event: EmailFeedback,
@@ -350,6 +379,9 @@ export async function persistEmailFeedback(
   });
 }
 
+/** Handles SNS subscription and SES feedback HTTP requests.
+ * The feedback API route delegates its POST workflow here.
+ */
 export async function postEmailFeedback(request: Request): Promise<Response> {
   try {
     const topic = process.env.SES_FEEDBACK_TOPIC_ARN;

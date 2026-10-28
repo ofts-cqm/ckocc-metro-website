@@ -32,6 +32,9 @@ export const verificationSchema = z
 export const emailTokenSchema = z
   .object({ token: z.string().regex(EMAIL_TOKEN_PATTERN) })
   .strict();
+/** Builds a shared error for invalid email action links.
+ * Verification and unsubscribe handling use it.
+ */
 const invalidLink = () =>
   new AppError(
     "invalid_link",
@@ -39,6 +42,9 @@ const invalidLink = () =>
     422,
   );
 
+/** Reads verification, preference, pending-address, and suppression state.
+ * The account settings API and verification request use it.
+ */
 export async function emailSettings(userId: string) {
   const result = await query<{
     email: string;
@@ -63,6 +69,9 @@ export async function emailSettings(userId: string) {
   return result.rows[0];
 }
 
+/** Stores opt-in and locale changes with a consent version.
+ * The settings API calls it when a member changes email preferences.
+ */
 export async function setEmailPreferences(
   userId: string,
   input: z.infer<typeof preferencesSchema>,
@@ -87,11 +96,15 @@ export async function setEmailPreferences(
   });
 }
 
+/** Checks address ownership and enqueues a scoped confirmation link.
+ * The settings workflow calls it for verification or address changes.
+ */
 export async function requestEmailVerification(
   request: Request,
   userId: string,
   input: z.infer<typeof verificationSchema>,
 ) {
+  // Check the current address and apply request-level abuse limits.
   const current = await emailSettings(userId);
   const address = input.address ?? current.email.toLowerCase();
   await enforceRateLimits([
@@ -104,6 +117,7 @@ export async function requestEmailVerification(
     },
   ]);
   return transaction(async (client) => {
+    // Lock identity and verify ownership before replacing any active link.
     await lockIdentityStore(client);
     const result = await client.query<{
       email: string;
@@ -182,12 +196,16 @@ export async function requestEmailVerification(
   });
 }
 
+/** Consumes a verification, change, or unsubscribe link once.
+ * Email link APIs call it to update account state safely.
+ */
 export async function consumeEmailToken(
   token: string,
   purpose: "verify" | "unsubscribe",
 ) {
   if (!EMAIL_TOKEN_PATTERN.test(token)) throw invalidLink();
   return transaction(async (client) => {
+    // Lock the account and one-use token before applying either link action.
     await lockIdentityStore(client);
     const candidate = await client.query<{ user_id: string }>(
       "SELECT user_id FROM metro_email_tokens WHERE token_digest=$1",
@@ -230,6 +248,7 @@ export async function consumeEmailToken(
         [row.user_id],
       );
     } else {
+      // Verification and address changes require the original account state.
       if (
         !row.active ||
         row.source_email !== row.email.toLowerCase() ||

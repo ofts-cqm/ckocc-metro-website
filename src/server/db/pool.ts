@@ -7,7 +7,9 @@ import {
 
 let pool: Pool | undefined;
 
-/** Lazy initialization allows builds without connecting to a deployment database. */
+/** Lazy initialization allows builds without connecting to a deployment database.
+ * Every server query and transaction uses it.
+ */
 export function getPool(): Pool {
   if (pool) return pool;
   const connectionString = process.env.DATABASE_URL;
@@ -27,6 +29,9 @@ export function getPool(): Pool {
   return pool;
 }
 
+/** Runs a parameterized statement through the shared pool.
+ * Server data access uses it for individual database operations.
+ */
 export function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = [],
@@ -34,6 +39,9 @@ export function query<T extends QueryResultRow = QueryResultRow>(
   return getPool().query<T>(text, params);
 }
 
+/** Runs a callback inside a committed or rolled-back transaction.
+ * Multi-step account, email, and operation workflows use it.
+ */
 export async function transaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {

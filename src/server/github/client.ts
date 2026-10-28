@@ -1,12 +1,18 @@
 import { App, Octokit } from "octokit";
 import { PipelineError } from "@/server/operations/errors";
 
+/** Reads a required provider setting or raises a safe error.
+ * GitHub client setup uses it for credentials and repository identity.
+ */
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new PipelineError("service_not_configured", 503);
   return value;
 }
 
+/** Validates the configured repository and default branch.
+ * Issue, map, and publication workflows call it.
+ */
 export function repositoryConfig() {
   const owner = required("GITHUB_OWNER");
   const repo = required("GITHUB_REPO");
@@ -24,7 +30,9 @@ export function repositoryConfig() {
   return { owner, repo, branch, key: `${owner}/${repo}` };
 }
 
-/** Optional read-triggered syncs must not run before the GitHub connection is configured. */
+/** Optional read-triggered syncs must not run before the GitHub connection is configured.
+ * Optional read-triggered syncs use it before provider calls.
+ */
 export function githubConfigured(): boolean {
   try {
     repositoryConfig();
@@ -51,6 +59,9 @@ const SafeOctokit = Octokit.defaults({
   throttle: { enabled: false },
 });
 
+/** Creates a GitHub client with bounded requests and no write retries.
+ * Issue and map workflows call it for provider access.
+ */
 export async function github() {
   if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
     return new SafeOctokit({ auth: process.env.GITHUB_PERSONAL_ACCESS_TOKEN });
@@ -69,10 +80,16 @@ export async function github() {
   return app.getInstallationOctokit(installationId);
 }
 
+/** Returns the configured bot account name.
+ * Issue attribution checks use it to identify trusted writes.
+ */
 export function expectedBotLogin(): string {
   return required("GITHUB_BOT_LOGIN");
 }
 
+/** Reads and verifies the configured default branch HEAD.
+ * Map edit, validation, and publication workflows use it.
+ */
 export async function currentHead() {
   const client = await github();
   const { owner, repo, branch } = repositoryConfig();
@@ -93,6 +110,9 @@ export const MAP_PATHS = {
   manifest: "maps/manifest.json",
 } as const;
 
+/** Reads a bounded map file from a specific Git commit.
+ * Map source and publication workflows use it.
+ */
 export async function readFileAt(
   commit: string,
   path: (typeof MAP_PATHS)[keyof typeof MAP_PATHS],

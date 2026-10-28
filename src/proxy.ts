@@ -7,6 +7,8 @@ const languages = {
 } as const;
 type LanguagePath = keyof typeof languages;
 
+/** Maps a browser language tag to a supported locale path.
+ * Locale selection calls this for the saved cookie and Accept-Language entries. */
 function resolveLanguage(value: string): LanguagePath | null {
   const language = value.toLowerCase();
   if (language.startsWith("en")) return "en-us";
@@ -15,6 +17,8 @@ function resolveLanguage(value: string): LanguagePath | null {
     return "zh-cn";
   return null;
 }
+/** Chooses a locale from the cookie, browser language preferences, or default.
+ * The page proxy invokes this when a URL has no supported locale prefix. */
 function preferredLanguage(request: NextRequest): LanguagePath {
   const saved = resolveLanguage(
     request.cookies.get("metro-locale")?.value ?? "",
@@ -36,6 +40,8 @@ function preferredLanguage(request: NextRequest): LanguagePath {
   }
   return "en-us";
 }
+/** Redirects page requests to a canonical locale path and forwards its tag.
+ * Next.js invokes this proxy for page routes matched by the config below. */
 export function proxy(request: NextRequest) {
   const segment = request.nextUrl.pathname.split("/")[1];
   const normalized = segment?.toLowerCase() as LanguagePath;

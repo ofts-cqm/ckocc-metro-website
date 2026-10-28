@@ -27,6 +27,9 @@ export interface EmailJob {
   lease_token: string | null;
 }
 
+/** Creates a verification email job and outbox entry.
+ * Address verification requests call it in their transaction.
+ */
 export async function enqueueVerification(
   client: PoolClient,
   input: {
@@ -51,7 +54,9 @@ export async function enqueueVerification(
   await client.query("INSERT INTO metro_email_outbox(job_id) VALUES($1)", [id]);
 }
 
-/** The inbox and email evaluate the same predicate and reply-before-mention precedence. */
+/** The inbox and email evaluate the same predicate and reply-before-mention precedence.
+ * Operation completion and repair scans call it.
+ */
 export async function enqueueOperationEmails(
   client: PoolClient,
   operationId?: string,
@@ -81,6 +86,9 @@ export async function enqueueOperationEmails(
   return inserted.rows.length;
 }
 
+/** Finalizes a claimed email job and its outbox entry.
+ * The sender calls it after a skip or confirmed SES submission.
+ */
 async function finish(
   client: PoolClient,
   job: EmailJob,
@@ -99,6 +107,9 @@ async function finish(
   );
 }
 
+/** Classifies SES failures by whether retry is safe.
+ * The email sender uses it after rejected requests.
+ */
 export function classifySendFailure(error: unknown): {
   status: "pending" | "failed" | "outcome_unknown";
   code: string;
@@ -127,6 +138,9 @@ export function classifySendFailure(error: unknown): {
   return { status: "outcome_unknown", code: "ses_outcome_unknown" };
 }
 
+/** Rechecks account, consent, token, and suppression state.
+ * The sender calls it immediately before SES submission.
+ */
 async function deliverySkipReason(
   client: PoolClient,
   job: EmailJob,
@@ -200,6 +214,9 @@ async function deliverySkipReason(
   return skip;
 }
 
+/** Claims, prepares, and submits one email with outcome tracking.
+ * The email workflow invokes it for a pending job.
+ */
 export async function executeEmailJob(
   id: string,
 ): Promise<{ retry: boolean; delay: number }> {
@@ -217,7 +234,7 @@ export async function executeEmailJob(
   let submissionStarted = false;
   let rejection: ReturnType<typeof classifySendFailure> | undefined;
   try {
-    // Commit quota and scoped links before SES. A lost result must not reopen
+    // Prepare durable quota and scoped links before any provider request. A lost result must not reopen
     // quota or invalidate a link in a message that may already be delivered.
     const prepared = await transaction(async (client) => {
       const skip = await deliverySkipReason(client, job);
@@ -245,6 +262,7 @@ export async function executeEmailJob(
       };
     });
     if (!prepared) return { retry: false, delay: 0 };
+    // Recheck delivery eligibility under the transaction that submits to SES.
     return await transaction(async (client) => {
       const skip = await deliverySkipReason(client, job);
       if (skip) {
@@ -270,6 +288,7 @@ export async function executeEmailJob(
         },
       });
       try {
+        // Submit once and persist the provider receipt while holding the send claim.
         // A preflight delayed across UTC midnight must reserve the new day's
         // quota before submitting. No SES request has started, so retry is safe.
         if (
@@ -309,6 +328,7 @@ export async function executeEmailJob(
       }
     });
   } catch {
+    // Preserve uncertain outcomes; retry only failures known to occur before acceptance.
     const failure =
       rejection ??
       (submissionStarted
@@ -333,6 +353,9 @@ export async function executeEmailJob(
   }
 }
 
+/** Starts workflows for due email outbox records.
+ * Operation processing and repair call it to dispatch jobs.
+ */
 export async function launchPendingEmailJobs() {
   if (!emailEnabled()) return 0;
   const { start } = await import("workflow/api");
@@ -367,6 +390,9 @@ export async function launchPendingEmailJobs() {
   return launched;
 }
 
+/** Discovers missed jobs and reconciles abandoned dispatches.
+ * The scheduled maintenance workflow calls it.
+ */
 export async function repairEmailJobs() {
   const discovered = await transaction((client) =>
     enqueueOperationEmails(client),

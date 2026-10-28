@@ -7,6 +7,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Returns mention suggestions for comments and general thoughts.
+// The composer invokes this as the author types a mention.
 export async function GET(request: Request): Promise<Response> {
   try {
     const user = await optionalUser(request);

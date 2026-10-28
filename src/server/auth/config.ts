@@ -12,10 +12,16 @@ import {
 } from "./password";
 
 const loginContext = new AsyncLocalStorage<{ verifiedHash?: string }>();
+/** Starts request-local state for a credential sign-in.
+ * The auth route uses it to bind session creation to the verified password.
+ */
 export function withLoginContext<T>(run: () => Promise<T>): Promise<T> {
   return loginContext.run({}, run);
 }
 
+/** Validates and returns the configured authentication origin.
+ * Auth, email, and origin checks use the same canonical site URL.
+ */
 export function siteOrigin(): string {
   const raw = process.env.BETTER_AUTH_URL || process.env.APP_URL;
   if (!raw) throw new Error("BETTER_AUTH_URL or APP_URL is required.");
@@ -33,6 +39,9 @@ export function siteOrigin(): string {
   return url.origin;
 }
 
+/** Configures Better Auth, credentials, cookies, and session hooks.
+ * The auth API initializes it for sign-in and session requests.
+ */
 function createAuth() {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32)
@@ -53,6 +62,7 @@ function createAuth() {
       revokeSessionsOnPasswordReset: true,
       password: {
         hash: hashPassword,
+        // Credential sign-in checks the password and upgrades older hashes safely.
         verify: async (input) => {
           const valid = await verifyPassword(input);
           let verifiedHash = input.hash;
@@ -101,6 +111,7 @@ function createAuth() {
     databaseHooks: {
       session: {
         create: {
+          // Session creation rechecks the exact credential verified in this request.
           before: async (session) => {
             const result = await query<{
               active: boolean;
@@ -131,6 +142,9 @@ function createAuth() {
 }
 
 let auth: ReturnType<typeof createAuth> | undefined;
+/** Lazily shares one Better Auth instance.
+ * Auth routes and authorization guards call it when needed.
+ */
 export function getAuth(): ReturnType<typeof createAuth> {
   auth ??= createAuth();
   return auth;

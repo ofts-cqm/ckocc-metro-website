@@ -1,9 +1,15 @@
 import "server-only";
 
+/** Reads the email delivery feature switch.
+ * Job dispatch and execution use it before sending.
+ */
 export function emailEnabled() {
   return process.env.EMAIL_NOTIFICATIONS_ENABLED === "true";
 }
 
+/** Validates SES region, sender, and site origin settings.
+ * The email worker calls it before composing a send.
+ */
 export function emailConfig() {
   const region = process.env.AWS_REGION;
   const from = process.env.SES_FROM_EMAIL;

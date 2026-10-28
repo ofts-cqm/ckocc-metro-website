@@ -9,10 +9,19 @@ import type { Operation } from "@/server/operations/store";
 type Issue = Awaited<
   ReturnType<Awaited<ReturnType<typeof github>>["rest"]["issues"]["get"]>
 >["data"];
+/** Normalizes labels on a GitHub issue.
+ * Eligibility and summary formatting use it.
+ */
 const labels = (issue: Issue) =>
   issue.labels.map((l) => (typeof l === "string" ? l : l.name || ""));
+/** Checks whether an issue is a public metro request.
+ * Issue list and detail workflows filter through it.
+ */
 export const eligible = (issue: Issue) =>
   !issue.pull_request && labels(issue).includes("metro-request");
+/** Converts a GitHub issue to the public summary shape.
+ * Issue list and detail responses use it.
+ */
 function summary(issue: Issue): IssueSummary {
   const tags = labels(issue);
   return {
@@ -34,6 +43,9 @@ function summary(issue: Issue): IssueSummary {
   };
 }
 
+/** Extracts the operation ID embedded in a GitHub body.
+ * Attribution checks use it to match persisted writes.
+ */
 function operationMarker(body: string | null | undefined): string | null {
   return (
     body?.match(
@@ -41,6 +53,9 @@ function operationMarker(body: string | null | undefined): string | null {
     )?.[1] ?? null
   );
 }
+/** Loads operation records referenced by issue or comment markers.
+ * Issue list and comment reads use it for trusted attribution.
+ */
 async function matchingOperations(items: { body?: string | null }[]) {
   const ids = [
     ...new Set(
@@ -56,6 +71,9 @@ async function matchingOperations(items: { body?: string | null }[]) {
   );
   return new Map(result.rows.map((op) => [op.id, op]));
 }
+/** Verifies a bot issue against its saved request operation.
+ * Public issue views use it before displaying a game name.
+ */
 function trustedRequest(issue: Issue, operations: Map<string, Operation>) {
   if (issue.user?.login !== expectedBotLogin()) return null;
   const id = operationMarker(issue.body);
@@ -71,6 +89,9 @@ function trustedRequest(issue: Issue, operations: Map<string, Operation>) {
   return parsed.data;
 }
 
+/** Reads a short-lived GitHub response with a locked refresh.
+ * Issue and comment listing use it to limit provider calls.
+ */
 async function cached<T>(key: string, read: () => Promise<T>): Promise<T> {
   const namespaced = `${repositoryConfig().key}:${key}`;
   const hit = await query<{ payload: T }>(
@@ -97,6 +118,9 @@ async function cached<T>(key: string, read: () => Promise<T>): Promise<T> {
   });
 }
 
+/** Fetches an eligible request and optionally checks writability.
+ * Issue reads, replies, and mutation validation call it.
+ */
 export async function assertEligibleIssue(
   number: number,
   writable = false,
@@ -114,6 +138,9 @@ export async function assertEligibleIssue(
   return issue;
 }
 
+/** Confirms a reply points to a comment on the same issue.
+ * Comment submission calls it before queuing a reply.
+ */
 export async function assertReplyTarget(number: number, commentId: number) {
   const issue = await assertEligibleIssue(number, true);
   if (!Number.isSafeInteger(commentId) || commentId < 1)
@@ -137,6 +164,9 @@ export async function assertReplyTarget(number: number, commentId: number) {
   }
 }
 
+/** Returns a filtered page of metro request summaries.
+ * The public issue listing API calls it.
+ */
 export async function listIssues(
   page: number,
   state: "open" | "closed",
@@ -174,6 +204,9 @@ export async function listIssues(
   };
 }
 
+/** Returns one freshly eligible issue with trusted request data.
+ * The issue detail API calls it.
+ */
 export async function issueDetail(number: number): Promise<IssueDetail> {
   // Eligibility is always fresh. A removed public label cannot survive a cached body.
   const issue = await assertEligibleIssue(number);
@@ -186,6 +219,9 @@ export async function issueDetail(number: number): Promise<IssueDetail> {
   };
 }
 
+/** Returns a chronological page of comments with attribution.
+ * The issue comments API calls it.
+ */
 export async function issueComments(number: number, page: number) {
   const issue = await assertEligibleIssue(number);
   const result = await cached(`comments:${number}:${page}`, async () => {
@@ -248,6 +284,9 @@ export async function issueComments(number: number, page: number) {
   return { comments, page, hasMore: result.hasMore };
 }
 
+/** Clears cached issue and comment responses for this repository.
+ * Successful GitHub writes call it so readers see fresh data.
+ */
 export async function invalidateIssues() {
   await query("DELETE FROM metro_github_cache WHERE cache_key LIKE $1", [
     `${repositoryConfig().key}:%`,

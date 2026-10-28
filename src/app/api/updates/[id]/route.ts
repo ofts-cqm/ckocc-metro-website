@@ -7,6 +7,8 @@ import { deleteUpdate } from "@/server/operations/manage-updates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Deletes a map update that the signed-in user may manage.
+// The user update list invokes this after authorization checks.
 export const DELETE = route(async (request, context) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);

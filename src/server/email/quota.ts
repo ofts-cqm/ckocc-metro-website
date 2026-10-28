@@ -1,6 +1,9 @@
 import "server-only";
 import type { PoolClient } from "pg";
 
+/** Reads the per-account daily notification cap.
+ * Quota reservation uses it for each outgoing notification.
+ */
 export function notificationDailyLimit(): number {
   const value = process.env.EMAIL_NOTIFICATIONS_PER_DAY?.trim();
   if (!value || !/^[1-9]\d*$/.test(value)) return 5;
@@ -11,6 +14,7 @@ export function notificationDailyLimit(): number {
 /** Reserve once per notification/day. The caller commits before contacting SES.
  * Retries reuse their slot; failures/uncertain sends keep it conservatively.
  * Quota belongs to the account and survives address changes and opt-in toggles.
+ * The email sender calls it before contacting SES.
  */
 export async function reserveNotificationSlot(
   client: PoolClient,

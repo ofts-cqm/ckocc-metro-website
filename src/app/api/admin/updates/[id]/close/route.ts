@@ -12,6 +12,8 @@ import { reconcileCompletedMaintenance } from "@/server/operations/maintenance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Accepts a request to close an unmerged map update pull request.
+// The admin review workflow invokes this and tracks the action as an operation.
 export const POST = route(async (request, context) => {
   enforceSameOrigin(request);
   const user = await requireAdmin(request);

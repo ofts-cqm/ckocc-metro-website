@@ -5,6 +5,8 @@ import { query } from "@/server/db";
 import { abuseDigest, trustedClientIp } from "@/server/security";
 import { PipelineError } from "./errors";
 
+/** Reads the configured daily guest mention quota.
+ * Public submission APIs use it when limiting unauthenticated mentions. */
 export function guestMentionLimit(): number {
   const value = process.env.GUEST_MENTIONS_PER_DAY?.trim();
   const parsed = Number(value);
@@ -16,14 +18,20 @@ export function guestMentionLimit(): number {
     : 3;
 }
 
+/** Returns the current quota window start for guest mentions.
+ * Reservation and remaining quota checks share this boundary. */
 function windowStart() {
   return new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000);
 }
 
+/** Hashes a trusted client address into the guest quota key.
+ * Public request and comment submissions use this without storing the raw IP. */
 function quotaDigest(request: Request) {
   return abuseDigest(`guest-mentions-day:${trustedClientIp(request)}`);
 }
 
+/** Reports how many mentions a guest can still submit today.
+ * Public form workflows use it to show or enforce quota. */
 export async function guestMentionRemaining(request: Request): Promise<number> {
   const limit = guestMentionLimit();
   if (
@@ -38,6 +46,8 @@ export async function guestMentionRemaining(request: Request): Promise<number> {
   return Math.max(0, limit - (result.rows[0]?.count ?? 0));
 }
 
+/** Reserves a guest mention allowance in the operation transaction.
+ * Request and comment acceptance call it before queuing a write. */
 export async function reserveGuestMentions(
   client: PoolClient,
   request: Request,
@@ -68,6 +78,8 @@ export async function reserveGuestMentions(
     throw new PipelineError("guest_mention_limit", 429);
 }
 
+/** Resolves mentioned users for a request or comment notification.
+ * Discussion submission workflows call it after parsing mention syntax. */
 export async function resolveMentions(
   payload: CommentPayload | GeneralRequest,
 ): Promise<string[]> {
@@ -100,6 +112,8 @@ export async function resolveMentions(
   return ids;
 }
 
+/** Finds eligible account names for mention autocomplete.
+ * Public discussion form APIs call this during authoring. */
 export async function mentionSuggestions(queryText: string) {
   const search = queryText.trim();
   if (!search || search.length > 64) return [];

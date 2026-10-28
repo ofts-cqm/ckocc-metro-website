@@ -4,6 +4,8 @@ import { withWorkflow } from "workflow/next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["@node-rs/argon2", "sharp", "pg"],
+  /** Supplies response security headers for all routes.
+   * Next.js invokes this at configuration time for page and API responses. */
   async headers() {
     return [
       {

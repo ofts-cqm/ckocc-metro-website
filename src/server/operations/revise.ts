@@ -10,6 +10,8 @@ import {
   assertUpdateRepository,
 } from "./manage-updates";
 
+/** Creates a replacement edit draft from a safely failed or closed update.
+ * The update revision API calls it for the authenticated author. */
 export async function reviseUpdate(id: string, user: SessionUser) {
   const recovered = await transaction(async (client) => {
     const found = await client.query<Operation & { lease_until: Date | null }>(

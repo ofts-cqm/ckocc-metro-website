@@ -3,6 +3,8 @@ import { query } from "@/server/db";
 import type { NotificationItem } from "@/lib/contracts";
 import { PipelineError } from "./errors";
 
+/** Builds the recipient filter shared by notification queries.
+ * Inbox listing and unread count workflows use it. */
 export function notificationRecipientWhere(user = "$1") {
   return `o.status='succeeded' AND (
   ((o.kind='comment' OR (o.kind='request' AND o.payload->>'kind'='general')) AND
@@ -21,6 +23,8 @@ export function notificationRecipientWhere(user = "$1") {
   (o.actor_id IS NULL OR o.actor_id<>${user})`;
 }
 
+/** Builds the notification kind expression for inbox display.
+ * Notification listing uses it to label each event. */
 export function notificationKindSql(user = "$1") {
   return `CASE WHEN o.kind='request' AND o.payload->>'kind'='line-update'
                    AND o.payload->>'operation'='add' THEN 'line-add'
@@ -34,6 +38,8 @@ export function notificationKindSql(user = "$1") {
 }
 
 // Successful operations are durable inbox events, without a second delivery table.
+/** Lists a user’s inbox entries and unread state.
+ * The notifications API calls this for the signed in account. */
 export async function listNotifications(userId: string) {
   const marker = await query<{ through: Date | null }>(
     `SELECT max(o.updated_at) AS through FROM metro_audit a
@@ -70,6 +76,8 @@ export async function listNotifications(userId: string) {
   };
 }
 
+/** Marks notification entries through a given item as read.
+ * The inbox read API calls this after user authentication. */
 export async function markNotificationsRead(userId: string, throughId: string) {
   const visible = await listNotifications(userId);
   if (!visible.notifications.some((item) => item.id === throughId))

@@ -13,6 +13,9 @@ import { AppError, errorResponse, json, readJson } from "@/server/http";
 import { enforceSameOrigin } from "@/server/security";
 
 export const runtime = "nodejs";
+// Runs an administrator account action: reset, disable, or enable.
+// The account management workflow invokes it after a fresh admin check.
+// Enable and disable actions audit the change and revoke affected sessions.
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string; action: string }> },

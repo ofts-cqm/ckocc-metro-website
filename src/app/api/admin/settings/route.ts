@@ -7,6 +7,8 @@ import { enforceSameOrigin } from "@/server/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Reads the public-write pause setting for the admin controls.
+// The administrator settings page invokes this on load.
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireAdmin(request, { fresh: false });
@@ -20,6 +22,8 @@ export async function GET(request: Request): Promise<Response> {
     return errorResponse(error);
   }
 }
+// Changes the public-write pause setting after fresh admin authorization.
+// The administrator settings workflow invokes this and records an audit entry.
 export async function PATCH(request: Request): Promise<Response> {
   try {
     enforceSameOrigin(request);

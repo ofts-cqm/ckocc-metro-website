@@ -1,5 +1,6 @@
 import { AppError } from "@/server/http";
 
+/** Carries a stable operation error code and HTTP status through route and worker handling. */
 export class PipelineError extends AppError {
   constructor(
     code: string,
@@ -10,12 +11,14 @@ export class PipelineError extends AppError {
   }
 }
 
+/** Gets an HTTP status from a known error for API response handling. */
 export function statusOf(error: unknown): number | undefined {
   return typeof error === "object" && error !== null && "status" in error
     ? Number(error.status)
     : undefined;
 }
 
+/** Converts worker failures to a safe public operation error code. */
 export function safeErrorCode(error: unknown): string {
   if (error instanceof PipelineError) return error.code;
   const status = statusOf(error);
@@ -24,6 +27,7 @@ export function safeErrorCode(error: unknown): string {
   return "provider_unavailable";
 }
 
+/** Computes a retry delay for provider failures in the operation worker. */
 export function providerBackoff(error: unknown): number {
   const headers = (error as { response?: { headers?: Record<string, string> } })
     ?.response?.headers;

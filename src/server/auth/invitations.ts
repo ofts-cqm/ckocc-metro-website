@@ -54,8 +54,14 @@ type Invitation = QueryResultRow & {
   consumed_at: Date | null;
   revoked_at: Date | null;
 };
+/** Hashes an invitation secret for database lookup.
+ * Issuance and redemption use it so plaintext tokens are not stored.
+ */
 const tokenDigest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
+/** Builds the common invalid or expired link error.
+ * Invitation inspection and redemption use it for rejected links.
+ */
 const invalidInvitation = () =>
   new AppError(
     "invalid_invitation",
@@ -63,6 +69,9 @@ const invalidInvitation = () =>
     422,
   );
 
+/** Records a durable identity action in the audit table.
+ * Invite, reset, and redemption workflows call it in their transaction.
+ */
 export async function audit(
   client: PoolClient,
   actor: string | null,
@@ -76,6 +85,9 @@ export async function audit(
   );
 }
 
+/** Checks that a new invited address has no account.
+ * The admin invitation API calls it before issuing a link.
+ */
 export async function createInvitation(
   actor: string,
   input: z.infer<typeof invitationSchema>,
@@ -96,6 +108,9 @@ export async function createInvitation(
   });
 }
 
+/** Revokes older links and creates one expiring invite or reset URL.
+ * Admin invitation and reset workflows call it under the identity lock.
+ */
 async function issueLink(
   client: PoolClient,
   actor: string,
@@ -139,6 +154,9 @@ async function issueLink(
   };
 }
 
+/** Checks an active account and issues a password reset link.
+ * An administrator invokes it from account management.
+ */
 export async function createPasswordReset(
   actor: string,
   userId: string,
@@ -174,6 +192,9 @@ export async function createPasswordReset(
   });
 }
 
+/** Looks up a live invite or reset token for display.
+ * The invitation page and redemption precheck call it.
+ */
 export async function inspectInvitation(token: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw invalidInvitation();
   const result = await query<Invitation>(
@@ -190,6 +211,9 @@ export async function inspectInvitation(token: string) {
   };
 }
 
+/** Consumes a link to create an account or reset credentials.
+ * The invitation acceptance API calls it after password validation.
+ */
 export async function redeemInvitation(
   input: z.infer<typeof redeemSchema>,
 ): Promise<void> {

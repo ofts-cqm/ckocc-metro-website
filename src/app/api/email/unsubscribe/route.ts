@@ -2,6 +2,8 @@ import { consumeEmailToken, emailTokenSchema } from "@/server/email/accounts";
 import { errorResponse, json, readJson } from "@/server/http";
 import { enforceSameOrigin, requireInvitationAttempt } from "@/server/security";
 export const runtime = "nodejs";
+// Consumes an unsubscribe token from an email link.
+// The email preference workflow invokes this without requiring sign-in.
 export async function POST(request: Request) {
   try {
     enforceSameOrigin(request);

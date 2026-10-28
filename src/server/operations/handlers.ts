@@ -83,6 +83,8 @@ import { PipelineError, safeErrorCode } from "./errors";
 import type { UpdateInput } from "./update";
 import { resolveMentions, reserveGuestMentions } from "./mentions";
 
+/** Wraps API handlers with shared error to response conversion.
+ * All operation and map endpoints in this module use this boundary. */
 export const route =
   (
     fn: (
@@ -101,8 +103,12 @@ export const route =
     }
   };
 const uuid = z.string().uuid();
+/** Reads the required idempotency key from a mutation request.
+ * Public and signed in submission APIs pass it to operation acceptance. */
 const key = (request: Request) =>
   idempotencyKeySchema.parse(request.headers.get("Idempotency-Key"));
+/** Parses a page number for chronological issue discussion lists.
+ * The comments API uses it for pagination. */
 const page = (request: Request) =>
   z.coerce
     .number()
@@ -110,6 +116,8 @@ const page = (request: Request) =>
     .min(1)
     .max(1000)
     .parse(new URL(request.url).searchParams.get("page") ?? 1);
+/** Resolves a dynamic route parameter from Next route context.
+ * Issue, operation, and edit session APIs use it for IDs. */
 async function param(
   context: { params: Promise<Record<string, string>> } | undefined,
   name: string,
@@ -117,6 +125,8 @@ async function param(
   const values = await context?.params;
   return values?.[name] ?? "";
 }
+/** Parses a GitHub issue number from route context.
+ * Issue detail, comments, and close handlers share it. */
 const issueNumber = async (
   context: { params: Promise<Record<string, string>> } | undefined,
 ) =>
@@ -126,6 +136,8 @@ const issueNumber = async (
     .positive()
     .parse(await param(context, "number"));
 
+/** Rejects a guest name already held by a registered account.
+ * Public request and comment submissions call it before acceptance. */
 async function assertGuestNameAvailable(gameName: string) {
   const registered = await query(
     'SELECT 1 FROM "user" WHERE lower(btrim(name)) = lower($1) LIMIT 1',
@@ -134,11 +146,14 @@ async function assertGuestNameAvailable(gameName: string) {
   if (registered.rowCount) throw new PipelineError("registered_game_name", 409);
 }
 
+/** Queues a low frequency sync to refresh stored provider state.
+ * Public reads use this when saved state might be stale. */
 async function queueReadReconciliation() {
   const recent = await query(
     "SELECT id FROM metro_operations WHERE kind='sync' AND created_at>now()-interval '60 seconds' LIMIT 1",
   );
   if (recent.rowCount) return;
+  // Accept the mutation and queue provider work under one idempotency key.
   const operation = await acceptOperation({
     kind: "sync",
     scope: "read:sync",
@@ -150,6 +165,8 @@ async function queueReadReconciliation() {
   await launchOperation(operation.id);
 }
 
+/** Schedules read reconciliation after returning saved content.
+ * Map and update listing APIs use it without delaying their responses. */
 function scheduleReadReconciliation() {
   if (!process.env.DATABASE_URL || !githubConfigured()) return;
   // Serving saved data must not depend on a workflow launch succeeding.
@@ -164,6 +181,8 @@ function scheduleReadReconciliation() {
   });
 }
 
+/** Returns the approved starter map while no publication exists.
+ * The map GET API uses this during initial deployment. */
 async function bootstrapMapResponse() {
   try {
     const bootstrap = JSON.parse(
@@ -178,6 +197,8 @@ async function bootstrapMapResponse() {
   }
 }
 
+/** Returns the published map metadata or the starter map.
+ * The public map page calls this endpoint. */
 export const getMap = route(async () => {
   if (!process.env.DATABASE_URL) return bootstrapMapResponse();
   let map: PublishedMap | null = null;
@@ -195,6 +216,8 @@ export const getMap = route(async () => {
   return map ? json({ map }) : bootstrapMapResponse();
 });
 
+/** Lists public requests and thoughts by state, kind, and page.
+ * Public discussion pages call this endpoint. */
 export const getIssues = route(async (request) => {
   const search = new URL(request.url).searchParams;
   const state = z.enum(["open", "closed"]).parse(search.get("state") || "open");
@@ -210,13 +233,19 @@ export const getIssues = route(async (request) => {
     });
   return json(await listIssues(page(request), state, kind));
 });
+/** Returns one public issue with its saved detail.
+ * The issue detail page calls this endpoint. */
 export const getIssue = route(async (_request, context) =>
   json({ issue: await issueDetail(await issueNumber(context)) }),
 );
+/** Returns a chronological page of issue comments.
+ * The issue detail page calls this endpoint. */
 export const getComments = route(async (request, context) =>
   json(await issueComments(await issueNumber(context), page(request))),
 );
 
+/** Checks origin and parses public submission security fields.
+ * Request and comment POST handlers share this input gate. */
 async function publicInput(request: Request) {
   enforceSameOrigin(request);
   const raw = z.record(z.string(), z.unknown()).parse(await readJson(request));
@@ -228,6 +257,8 @@ async function publicInput(request: Request) {
   } = raw;
   return { ...security, payload, key: key(request) };
 }
+/** Accepts a request or general thought and queues GitHub publication.
+ * The public discussion form calls this endpoint. */
 export const postRequest = route(async (request) => {
   const input = await publicInput(request);
   const user = await optionalUser(request);
@@ -268,6 +299,8 @@ export const postRequest = route(async (request) => {
     202,
   );
 });
+/** Queues an administrator action to close a public issue.
+ * The issue moderation interface calls this endpoint. */
 export const postCloseIssue = route(async (request, context) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -291,6 +324,8 @@ export const postCloseIssue = route(async (request, context) => {
   await launchOperation(operation.id);
   return json({ operation: operationView(operation) }, 202);
 });
+/** Accepts a reply with identity and mention checks.
+ * The public issue discussion form calls this endpoint. */
 export const postComment = route(async (request, context) => {
   const number = await issueNumber(context);
   const input = await publicInput(request);
@@ -340,6 +375,8 @@ export const postComment = route(async (request, context) => {
     202,
   );
 });
+/** Returns an operation status to its authorized actor or receipt holder.
+ * Submission UIs poll this endpoint after queuing work. */
 export const getOperationStatus = route(async (request, context) => {
   const op = await getOperation(uuid.parse(await param(context, "id")));
   if (op.actor_id) {
@@ -356,12 +393,16 @@ export const getOperationStatus = route(async (request, context) => {
   return json({ operation: operationView(op) });
 });
 
+/** Returns the current map head for an authenticated editor.
+ * The map editor calls it before starting or submitting an edit. */
 export const getMapHead = route(async (request) => {
   await requireUser(request);
   const { commit, manifest } = await resolveMapBase();
   return json({ revision: manifest.map_revision, commitSha: commit });
 });
 
+/** Creates an owned map edit session pinned to a base commit.
+ * The map editor starts its upload workflow here. */
 export const postEditSession = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -384,6 +425,8 @@ export const postEditSession = route(async (request) => {
     201,
   );
 });
+/** Returns an owned edit session and its current state.
+ * The map editor restores a draft through this endpoint. */
 export const getEditSession = route(async (request, context) => {
   const user = await requireUser(request);
   const session = await ownedEditSession(
@@ -392,6 +435,8 @@ export const getEditSession = route(async (request, context) => {
   );
   return json({ editSession: await sessionView(session) });
 });
+/** Downloads the validated source JSON for an owned edit session.
+ * The map editor loads the base map through this endpoint. */
 export const getSource = route(async (request, context) => {
   const user = await requireUser(request);
   const session = await ownedEditSession(
@@ -428,6 +473,8 @@ export const getSource = route(async (request, context) => {
     },
   });
 });
+/** Returns a downsized PNG preview from an owned staged upload.
+ * The map update form displays it before submission. */
 export const getPreview = route(async (request, context) => {
   const user = await requireUser(request);
   const session = await ownedEditSession(
@@ -462,6 +509,8 @@ export const getPreview = route(async (request, context) => {
     },
   });
 });
+/** Reserves a JSON or PNG staging slot for an edit session.
+ * The map editor calls it before uploading bytes. */
 export const postReserveUpload = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -472,6 +521,8 @@ export const postReserveUpload = route(async (request) => {
   const upload = await reserveUpload(user, input.editSessionId, input.kind);
   return json({ upload: { id: upload.id, pathname: upload.pathname } }, 201);
 });
+/** Issues an upload token for a reserved staging slot.
+ * The map editor calls it before direct upload. */
 export const postUploadToken = route(async (request) =>
   json(
     await handleStagingUpload(
@@ -480,6 +531,8 @@ export const postUploadToken = route(async (request) =>
     ),
   ),
 );
+/** Validates and finalizes an uploaded staging object.
+ * The map editor calls it after transferring bytes. */
 export const postCompleteUpload = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -498,6 +551,8 @@ export const postCompleteUpload = route(async (request) => {
   });
 });
 
+/** Validates an edit session and queues a map update PR.
+ * The signed in map submission form calls this endpoint. */
 export const postUpdate = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);
@@ -510,6 +565,7 @@ export const postUpdate = route(async (request) => {
   );
   let payload: UpdateInput;
   let operationKind: "update" | "edit-update" = "update";
+  // Reuse an accepted submission when the browser repeats its idempotency key.
   if (prior.rows[0]) {
     payload = { ...prior.rows[0].payload, ...input } as UpdateInput;
     if (prior.rows[0].kind === "edit-update") operationKind = "edit-update";
@@ -567,6 +623,8 @@ export const postUpdate = route(async (request) => {
   await launchOperation(operation.id);
   return json({ operation: operationView(operation) }, 202);
 });
+/** Lists authored and other map updates with action state.
+ * My Updates and Updates from Others call this endpoint. */
 export const getUpdates = route(async (request) => {
   const user = await requireUser(request);
   const historyPage = z.coerce
@@ -587,6 +645,7 @@ export const getUpdates = route(async (request) => {
     revised_expires_at: Date | null;
     revised_owner_id: string | null;
   };
+  // Load authorized update history and related action state.
   const repository = repositoryConfig().key;
   const result = await query<AuthoredOperation>(
     `SELECT o.*, u.name AS author_name, revised.status AS revised_status, revised.expires_at AS revised_expires_at, revised.owner_id AS revised_owner_id
@@ -607,10 +666,14 @@ export const getUpdates = route(async (request) => {
           [user.id, repository, (othersPage - 1) * UPDATE_HISTORY_PAGE_SIZE],
         )
       : { rows: [] };
+  // Join publication and action evidence before constructing update summaries.
   const publication = await query<{ operation_id: string }>(
     "SELECT manifest->>'operation_id' AS operation_id FROM metro_publications WHERE repository=$1",
     [repositoryConfig().key],
   );
+  /** Maps an authored operation to the update list response.
+   * The updates API uses it for both own and other updates. */
+  /** Formats one stored update for the authenticated history response. */
   const summary = (op: AuthoredOperation): UpdateSummary => ({
     authorName: op.author_name,
     canDelete: canDeleteUpdate(op),
@@ -679,6 +742,8 @@ export const getUpdates = route(async (request) => {
   });
 });
 
+/** Lists operations needing administrator attention.
+ * The administrator operations view calls this endpoint. */
 export const getAdminOperations = route(async (request) => {
   await requireAdmin(request, { fresh: false });
   if (githubConfigured()) {
@@ -690,6 +755,8 @@ export const getAdminOperations = route(async (request) => {
   );
   return json({ operations: result.rows.map(operationView) });
 });
+/** Requeues an eligible failed or uncertain operation.
+ * An administrator invokes it from the operations view. */
 export const postRetryOperation = route(async (request, context) => {
   enforceSameOrigin(request);
   const user = await requireAdmin(request);
@@ -700,6 +767,8 @@ export const postRetryOperation = route(async (request, context) => {
   await launchOperation(operation.id);
   return json({ operation: operationView(operation) }, 202);
 });
+/** Queues an administrator requested repository synchronization.
+ * The administration interface calls this endpoint. */
 export const postSync = route(async (request) => {
   enforceSameOrigin(request);
   const user = await requireAdmin(request);
@@ -719,6 +788,8 @@ export const postSync = route(async (request) => {
   return json({ operation: operationView(operation) }, 202);
 });
 
+/** Repairs due outbox, email, upload, and sync work.
+ * The authenticated scheduler calls this maintenance endpoint. */
 export const internalRepair = route(async (request) => {
   const secret = process.env.CRON_SECRET;
   if (
@@ -745,6 +816,8 @@ export const internalRepair = route(async (request) => {
   return json({ repaired, email, deletedUploads, operationId: operation.id });
 });
 
+/** Verifies and records a GitHub webhook before queuing sync.
+ * GitHub invokes this endpoint after repository events. */
 export const postWebhook = route(async (request) => {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
   if (!secret) throw new PipelineError("service_not_configured", 503);
@@ -756,6 +829,7 @@ export const postWebhook = route(async (request) => {
     !/^[a-f0-9-]{36}$/i.test(delivery)
   )
     throw new PipelineError("invalid_webhook", 401);
+  // Bound and verify the raw signed webhook body before parsing the event.
   const reader = request.body?.getReader();
   if (!reader) throw new PipelineError("invalid_webhook", 400);
   const chunks: Buffer[] = [];
@@ -788,6 +862,7 @@ export const postWebhook = route(async (request) => {
   }
   // GitHub App ping payloads do not necessarily include a repository/installation.
   // Their signature is sufficient for an acknowledgement, and they create no work.
+  // Ignore ping and out of scope deliveries after verifying the signature.
   if (event === "ping") return json({ accepted: true });
   const repo = repositoryConfig();
   const repository = payload.repository as { full_name?: string } | undefined;
@@ -805,6 +880,7 @@ export const postWebhook = route(async (request) => {
     return json({ ignored: true });
   if (event === "push" && payload.ref !== `refs/heads/${repo.branch}`)
     return json({ ignored: true });
+  // Deduplicate the delivery and persist sync work before acknowledging GitHub.
   const opId = await transaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `delivery:${delivery}`,

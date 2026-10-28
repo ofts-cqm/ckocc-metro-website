@@ -13,6 +13,8 @@ import { PipelineError, safeErrorCode } from "./errors";
 
 type Context = { params: Promise<{ id: string }> };
 const commit = z.string().regex(/^[a-f0-9]{40}$/);
+/** Turns map action errors into stable API responses.
+ * The review, merge, and rollback handlers use it at their boundary. */
 function failure(error: unknown) {
   return errorResponse(
     error &&
@@ -23,6 +25,8 @@ function failure(error: unknown) {
       : error,
   );
 }
+/** Returns merge readiness and source evidence for a map update.
+ * Administrators invoke it from the update review interface. */
 export async function getReview(request: Request, context: Context) {
   try {
     const user = await requireAdmin(request, { fresh: false });
@@ -57,6 +61,8 @@ export async function getReview(request: Request, context: Context) {
     return failure(error);
   }
 }
+/** Validates and accepts a merge or rollback action from an administrator.
+ * The post merge and post rollback routes both use this shared handler. */
 async function submit(
   request: Request,
   context: Context,
@@ -131,7 +137,9 @@ async function submit(
     return failure(error);
   }
 }
+/** Queues the reviewed map PR for merging from the administrator API. */
 export const postMerge = (request: Request, context: Context) =>
   submit(request, context, "merge");
+/** Queues a rollback of a reviewed map update from the administrator API. */
 export const postRollback = (request: Request, context: Context) =>
   submit(request, context, "rollback");

@@ -11,6 +11,8 @@ export const metadata: Metadata = {
     "Explore the CKOCC Minecraft metro map, share requests, and help keep the network up to date.",
 };
 export const dynamic = "force-dynamic";
+/** Sets the document language from the locale selected by the page proxy.
+ * Next.js renders this root layout around every page request. */
 export default async function RootLayout({
   children,
 }: {

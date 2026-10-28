@@ -4,6 +4,8 @@ import { errorResponse, json } from "@/server/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Lists invited account profiles for administrator account management.
+// The admin accounts page invokes this to show roles and active status.
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireAdmin(request, { fresh: false });

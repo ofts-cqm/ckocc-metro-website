@@ -5,6 +5,9 @@ import { query, transaction } from "@/server/db";
 import { AppError } from "@/server/http";
 import { siteOrigin } from "@/server/auth/config";
 
+/** Rejects cross-origin browser writes.
+ * Mutation and upload APIs call it before accepting requests.
+ */
 export function enforceSameOrigin(request: Request): void {
   if (request.headers.get("origin") !== siteOrigin())
     throw new AppError(
@@ -21,6 +24,9 @@ export function enforceSameOrigin(request: Request): void {
     );
 }
 
+/** Returns a platform-trusted client IP or local shared bucket.
+ * Rate-limit workflows use it without trusting client headers.
+ */
 export function trustedClientIp(request: Request): string {
   // Only Vercel's platform-overwritten header is trusted in the supported production deployment.
   if (process.env.VERCEL === "1" && process.env.TRUST_PROXY === "vercel") {
@@ -41,6 +47,9 @@ export function trustedClientIp(request: Request): string {
   );
 }
 
+/** HMACs a limiter key before database storage.
+ * Rate limits use it to avoid retaining raw IPs.
+ */
 export function abuseDigest(value: string): string {
   const secret = process.env.ABUSE_HASH_SECRET;
   if (!secret || secret.length < 32)
@@ -54,6 +63,9 @@ export function abuseDigest(value: string): string {
 
 type Limit = { key: string; max: number; seconds: number };
 
+/** Reads a positive environment-configured public-write limit.
+ * Anonymous request and comment throttles use it.
+ */
 function submissionLimit(name: string, fallback: number): number {
   const value = process.env[name]?.trim();
   if (!value || !/^\d+$/.test(value)) return fallback;
@@ -61,7 +73,9 @@ function submissionLimit(name: string, fallback: number): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Fixed windows are incremented in one transaction and survive serverless instance changes. */
+/** Fixed windows are incremented in one transaction and survive serverless instance changes.
+ * Login, invitation, verification, and public-write guards call it.
+ */
 export async function enforceRateLimits(limits: Limit[]): Promise<void> {
   if (
     process.env.DISABLE_RATE_LIMITS === "true" &&
@@ -101,6 +115,9 @@ export async function enforceRateLimits(limits: Limit[]): Promise<void> {
   }
 }
 
+/** Limits sign-in attempts by address/IP pair and IP.
+ * The credential sign-in route calls it before authentication.
+ */
 export async function requireLoginAttempt(
   request: Request,
   email: string,
@@ -116,6 +133,9 @@ export async function requireLoginAttempt(
   ]);
 }
 
+/** Clears the address/IP limiter after a valid sign-in.
+ * The credential sign-in route calls it on success.
+ */
 export async function clearSuccessfulLogin(
   request: Request,
   email: string,
@@ -127,12 +147,16 @@ export async function clearSuccessfulLogin(
   ]);
 }
 
+/** Checks origin, pause state, rate limits, and Turnstile proof.
+ * Guest request and comment APIs call it before queuing writes.
+ */
 export async function requireAnonymousWrite(
   request: Request,
   action: "request" | "comment",
   challenge: string,
   idempotencyKey: string,
 ): Promise<void> {
+  // Gate public submissions by origin, operator pause state, and IP buckets.
   enforceSameOrigin(request);
   const settings = await query<{ public_writes_paused: boolean }>(
     "SELECT public_writes_paused FROM metro_settings WHERE singleton = true",
@@ -212,11 +236,14 @@ export async function requireAnonymousWrite(
       "Please complete the verification challenge again.",
       422,
     );
+  // Charge the shared site allowance only after a valid challenge response.
   // Failed bot challenges must not consume the entire site's shared publication allowance.
   await enforceRateLimits([{ key: "public-global", max: 60, seconds: 3600 }]);
 }
 
-/** Invites remain secret credentials; rate limiting prevents token probes and expensive hashing floods. */
+/** Invites remain secret credentials; rate limiting prevents token probes and expensive hashing floods.
+ * Invitation inspection and redemption routes call it.
+ */
 export async function requireInvitationAttempt(
   request: Request,
 ): Promise<void> {
@@ -225,7 +252,9 @@ export async function requireInvitationAttempt(
   ]);
 }
 
-/** Call from the authenticated daily repair job; retention never relies on instance memory. */
+/** Call from the authenticated daily repair job; retention never relies on instance memory.
+ * The authenticated daily repair job calls it.
+ */
 export async function pruneSecurityRecords(): Promise<void> {
   await transaction(async (client) => {
     await client.query(

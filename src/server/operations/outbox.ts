@@ -2,6 +2,8 @@ import { start } from "workflow/api";
 import { operationWorkflow } from "@/workflows/operation";
 import { query } from "@/server/db";
 
+/** Schedules an accepted operation worker after the response is committed.
+ * Mutation routes and repair workflows call it to start queued work. */
 export async function launchOperation(id: string) {
   const claimed = await query(
     `UPDATE metro_outbox SET state='launching',attempts=attempts+1,updated_at=now()
@@ -25,6 +27,8 @@ export async function launchOperation(id: string) {
   }
 }
 
+/** Finds operations due for work and relaunches their workers.
+ * The internal repair endpoint calls it after missed or failed launches. */
 export async function repairOutbox() {
   // Crashed workflow steps become eligible after the operation lease has safely expired.
   await query(`UPDATE metro_outbox b SET state='pending',updated_at=now() FROM metro_operations o

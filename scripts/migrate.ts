@@ -11,7 +11,10 @@ const emailMigrations = [
 const prerequisites = ["001_accounts.sql", "002_pipeline.sql"];
 let connected = false;
 
+/** Checks applied SQL digests and runs pending migrations under a DB lock.
+ * db:migrate and the explicit production email migration command invoke it. */
 async function main(): Promise<void> {
+  // Select the requested database and read all migration files before connecting.
   const args = process.argv.slice(2);
   if (args.some((arg) => !["--email-prod", "--check"].includes(arg)))
     throw new MigrationError(
@@ -100,6 +103,7 @@ async function main(): Promise<void> {
         "CREATE TABLE metro_schema_migrations (name text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
       );
     let pending = 0;
+    // Apply each pending migration and its registry entry in one transaction.
     for (const name of files) {
       if (previous.has(name)) {
         console.log(`Already applied: ${name}`);

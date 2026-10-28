@@ -13,6 +13,8 @@ import {
 } from "./map-actions";
 import { PipelineError } from "./errors";
 
+/** Rejects an update while another action is pending or leased.
+ * Update management APIs use this before accepting a conflicting action. */
 export async function assertUpdateIdle(
   client: PoolClient,
   op: Operation & { lease_until?: Date | null },
@@ -29,6 +31,8 @@ export async function assertUpdateIdle(
   if (pending.rows.length) throw new PipelineError("update_busy", 409);
 }
 
+/** Confirms an update belongs to the configured GitHub repository.
+ * Update management and recovery workflows use this before reading its PR. */
 export function assertUpdateRepository(op: Operation) {
   const repo = repositoryConfig();
   if (
@@ -64,6 +68,8 @@ export async function assertInactiveUpdate(op: Operation) {
   }
 }
 
+/** Deletes a safe, inactive update from user history.
+ * The update delete API calls this for the authenticated owner. */
 export async function deleteUpdate(id: string, user: SessionUser) {
   return transaction(async (client) => {
     const found = await client.query<Operation>(
@@ -176,6 +182,8 @@ export async function beginUpdateEdit(id: string, user: SessionUser) {
   };
 }
 
+/** Closes an update pull request and records the resulting state.
+ * The close update API queues this administrator or author action. */
 export async function processCloseUpdate(op: Operation, token: string) {
   await requireOperationAdmin(op);
   const {
@@ -186,6 +194,7 @@ export async function processCloseUpdate(op: Operation, token: string) {
   if (source.checkpoint.deletedAt)
     throw new PipelineError("update_not_found", 404);
   if (pr.merged) throw new PipelineError("pr_already_merged", 409);
+  /** Stores a verified PR close result on its source update. */
   const record = async () => {
     const result = { prNumber: pr.number, prUrl: pr.html_url, state: "closed" };
     await checkpoint(op.id, token, { closeResult: result });

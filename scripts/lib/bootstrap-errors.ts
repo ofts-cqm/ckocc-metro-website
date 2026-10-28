@@ -18,6 +18,7 @@ const messages = {
 } as const;
 
 export class BootstrapError extends Error {
+  /** Stores a safe failure reason for the interactive admin setup workflow. */
   constructor(readonly reason: keyof typeof messages) {
     super(messages[reason]);
   }
@@ -52,7 +53,8 @@ const databaseErrors: Record<string, string> = {
     "DATABASE_URL is not a valid connection URL. Check .env.local.",
 };
 
-/** Never include raw provider errors, SQL, submitted values, or connection strings. */
+/** Turns known setup failures into actionable, secret-free CLI messages.
+ * The bootstrap command invokes it when account creation or DB access fails. */
 export function bootstrapFailureMessage(
   error: unknown,
   stage: BootstrapStage,

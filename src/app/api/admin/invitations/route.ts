@@ -6,6 +6,8 @@ import { enforceSameOrigin } from "@/server/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Lists recent invitations for administrator invitation management.
+// The admin page invokes this to inspect consumed and revoked invites.
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireAdmin(request, { fresh: false });
@@ -17,6 +19,8 @@ export async function GET(request: Request): Promise<Response> {
     return errorResponse(error);
   }
 }
+// Creates a new administrator-issued invitation.
+// The invitation form invokes this after a fresh admin check.
 export async function POST(request: Request): Promise<Response> {
   try {
     enforceSameOrigin(request);

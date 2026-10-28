@@ -140,6 +140,8 @@ export const galleryPhotos: { id: string; title: Record<Locale, string> }[] = [
   },
 ];
 
+/** Builds the path to a generated gallery image at the requested size.
+ * Home and gallery pages use it when rendering the static photo collection. */
 export function galleryImage(id: string, width: 640 | 1600 = 1600) {
   return `/gallery/${id}-${width}.webp`;
 }

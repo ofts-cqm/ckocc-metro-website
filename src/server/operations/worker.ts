@@ -26,6 +26,8 @@ import { repositoryConfig } from "@/server/github/client";
 import { processCloseUpdate } from "./manage-updates";
 import { processEditUpdate } from "./edit-update";
 
+/** Leases and dispatches an operation to its kind specific processor.
+ * Outbox launches and repair scans invoke this worker for accepted work. */
 export async function executeOperation(
   id: string,
 ): Promise<{ retry: boolean; delay: number }> {

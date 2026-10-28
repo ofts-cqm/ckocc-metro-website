@@ -31,22 +31,27 @@ const attention = ["failed", "needs_reconciliation", "outcome_unknown"];
 const updates = ["update", "rollback"];
 const actions = ["merge", "close-update", "edit-update", "refresh-update"];
 const terminal = ["merged", "published", "closed_unmerged"];
+/** Detects an active worker lease before the operator considers a row. */
 const live = (op: Snapshot) =>
   !!op.lease_until && new Date(op.lease_until).getTime() > Date.now();
+/** Detects evidence that an operation may already have made an external write. */
 const writes = (op: Snapshot) =>
   Object.keys(op.checkpoint).some((key) => /Intent$|Result$/.test(key)) ||
   !!op.result.mergeCommitSha ||
   op.result.publicationPending === true;
+/** Limits reconciliation to the repository and branch selected by the operator. */
 const matches = (op: Snapshot, ctx: Context) =>
   op.checkpoint.repository === ctx.repository &&
   op.checkpoint.baseBranch === ctx.branch;
 
-/** Only provider reads are injected. Uncertain writes never enter a worker. */
+/** Proposes a safe state change from stored checkpoints and GitHub PR evidence.
+ * The reconciliation scan invokes it for each operation; uncertain writes stay unresolved. */
 export async function inspectOperation(
   op: Snapshot,
   ctx: Context,
   loadSource: (id: string) => Promise<Snapshot | undefined>,
 ): Promise<Decision> {
+  // Reject busy, mismatched, or write-uncertain rows before provider inspection.
   if (!matches(op, ctx)) return { reason: "different_repository_or_branch" };
   if (live(op)) return { reason: "live_lease" };
   if (op.status === "outcome_unknown")
@@ -94,6 +99,7 @@ export async function inspectOperation(
     };
   }
   const target = source ?? op;
+  // Verify the PR identity and closure state before proposing a transition.
   const number = target.result.prNumber;
   if (!Number.isSafeInteger(number) || Number(number) <= 0)
     return { reason: "missing_pr" };
@@ -134,6 +140,7 @@ export async function inspectOperation(
   };
 }
 
+/** Loads an operation with its row version for the reconciliation scan. */
 export async function loadOperation(pool: Pool, id: string) {
   return (
     await pool.query<Snapshot>(
@@ -143,7 +150,8 @@ export async function loadOperation(pool: Pool, id: string) {
   ).rows[0];
 }
 
-/** Source-first locks and row versions prevent a stale observation overwriting a retry. */
+/** Applies an approved reconciliation decision with version and lease checks.
+ * The CLI invokes it only with --apply after the read-only evidence pass. */
 export async function applyDecision(
   pool: Pool,
   op: Snapshot,
@@ -208,12 +216,15 @@ export async function applyDecision(
   }
 }
 
+/** Scans operations, reports proposals, and optionally applies safe decisions.
+ * The operator CLI calls this for preview and explicit apply workflows. */
 export async function reconcileOperations(
   pool: Pool,
   ctx: Context,
   apply: boolean,
   report: (entry: Record<string, unknown>) => void = console.log,
 ) {
+  // Page through all rows and inspect each with current provider evidence.
   const summary = {
     scanned: 0,
     proposed: 0,

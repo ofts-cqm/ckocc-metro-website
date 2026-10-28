@@ -16,6 +16,8 @@ const statefile = path.join(directory, "connection.json");
 const envfile = path.join(root, ".env.local");
 type State = { port: number; password: string; administrator: string };
 
+/** Checks whether a managed local database file already exists.
+ * Initialization uses this before creating data or replacing local config. */
 async function exists(filename: string) {
   try {
     await stat(filename);
@@ -25,6 +27,8 @@ async function exists(filename: string) {
     throw error;
   }
 }
+/** Runs a PostgreSQL utility and reports a safe setup error on failure.
+ * Local init, start, and stop commands use this for cluster management. */
 function command(program: string, args: string[], quiet = false) {
   const result = spawnSync(program, args, {
     cwd: root,
@@ -36,15 +40,21 @@ function command(program: string, args: string[], quiet = false) {
       `${program} failed. Check PostgreSQL binaries and the project-local server log.`,
     );
 }
+/** Checks whether the project-local PostgreSQL cluster is active.
+ * The CLI uses it for start, stop, and status workflows. */
 function running() {
   return (
     spawnSync("pg_ctl", ["-D", data, "status"], { stdio: "ignore" }).status ===
     0
   );
 }
+/** Builds the application connection URL for a validated local cluster.
+ * Initialization writes this to the private local environment file. */
 function connection(state: State) {
   return `postgresql://ckocc_metro:${state.password}@127.0.0.1:${state.port}/ckocc_metro_dev`;
 }
+/** Reads and validates ownership and credentials from local cluster state.
+ * Start and initialization use it before trusting an existing cluster. */
 async function readState(): Promise<State> {
   const value = JSON.parse(await readFile(statefile, "utf8")) as State;
   if (
@@ -60,6 +70,8 @@ async function readState(): Promise<State> {
   }
   return value;
 }
+/** Starts an initialized project-local PostgreSQL server when needed.
+ * The CLI's start action and first-time initialization both call it. */
 async function start() {
   if (!(await exists(path.join(data, "PG_VERSION"))))
     throw new Error("Run npm run db:local:init first.");
@@ -68,7 +80,10 @@ async function start() {
     command("pg_ctl", ["-D", data, "-l", logfile, "-w", "-t", "30", "start"]);
 }
 
+/** Provisions an isolated local PostgreSQL role, database, and app connection.
+ * npm run db:local:init invokes it before local migrations or development. */
 async function initialize() {
+  // Guard existing user configuration and unmanaged data before making files.
   if (process.getuid?.() === 0)
     throw new Error(
       "Run local database setup as your regular operating-system user.",
@@ -106,6 +121,7 @@ async function initialize() {
     });
   await mkdir(socket, { recursive: true, mode: 0o700 });
   if (!(await exists(path.join(data, "PG_VERSION")))) {
+    // Initialize the cluster before restricting its listener and socket.
     command("initdb", [
       "-D",
       data,
@@ -145,6 +161,7 @@ async function initialize() {
     database: "postgres",
     connectionTimeoutMillis: 10_000,
   });
+  // Provision only the local application role and database.
   try {
     await admin.connect();
     const role = await admin.query(
@@ -206,6 +223,8 @@ async function initialize() {
   );
 }
 
+/** Dispatches the local database command requested by the operator.
+ * Package scripts call it for init, start, stop, and status actions. */
 async function main() {
   switch (process.argv[2]) {
     case "init":

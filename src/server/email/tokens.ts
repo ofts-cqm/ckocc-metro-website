@@ -6,7 +6,9 @@ import { AppError } from "@/server/http";
 export const EMAIL_TOKEN_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/;
 
-/** Reconstructable only with the server secret; the database stores a digest. */
+/** Reconstructable only with the server secret; the database stores a digest.
+ * Verification sending and link validation use it.
+ */
 export function tokenValue(id: string): string {
   const secret =
     process.env.EMAIL_TOKEN_SECRET || process.env.BETTER_AUTH_SECRET;
@@ -18,9 +20,15 @@ export function tokenValue(id: string): string {
     );
   return `${id}.${createHmac("sha256", secret).update(`metro-email-token:v1:${id}`).digest("base64url")}`;
 }
+/** Hashes a token for persistent lookup without storing it.
+ * Email token creation and consumption use it.
+ */
 export const tokenDigest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
+/** Stores a one-use unsubscribe token for an address.
+ * The email sender creates it for notification messages.
+ */
 export async function createUnsubscribeToken(
   client: PoolClient,
   userId: string,

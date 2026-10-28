@@ -33,6 +33,8 @@ export interface Operation {
   updated_at: Date;
   next_attempt_at: Date;
 }
+/** Serializes an input consistently for idempotency digesting.
+ * Operation acceptance uses it before looking up an existing request. */
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object")
@@ -42,12 +44,16 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
+/** Compares receipt digests without leaking a content dependent timing signal.
+ * Status and acceptance checks use it when validating guest receipts. */
 export function sameDigest(a: string, b: string) {
   return (
     a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
   );
 }
 
+/** Authorizes and stores a mutation, its idempotency key, and an outbox row.
+ * Public, author, and administrator APIs call it before any worker side effect. */
 export async function acceptOperation(input: {
   kind: Operation["kind"];
   scope: string;
@@ -61,6 +67,7 @@ export async function acceptOperation(input: {
   const digest = sha256(canonical(input.payload));
   const { repositoryConfig } = await import("@/server/github/client");
   const repository = repositoryConfig();
+  /** Validates that an idempotent replay belongs to the same actor and input. */
   const checkExisting = (op: Operation) => {
     if (op.request_digest !== digest)
       throw new PipelineError("idempotency_conflict", 409);
@@ -80,6 +87,7 @@ export async function acceptOperation(input: {
   // Never hold a pooled transaction client while authorization takes another client.
   // Turnstile verification uses this stable key as its provider idempotency key.
   await input.authorize();
+  // Lock the idempotency key and reserve all required local state atomically.
   return transaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `operation:${input.scope}:${input.key}`,
@@ -91,6 +99,7 @@ export async function acceptOperation(input: {
     if (existing.rows[0]) {
       return checkExisting(existing.rows[0]);
     }
+    // Serialize map actions targeting the same revision across browser keys.
     if (input.kind === "rollback" || input.kind === "merge") {
       // Serialize different browser keys and different administrators too.
       const target =
@@ -117,6 +126,7 @@ export async function acceptOperation(input: {
       );
       if (duplicate.rows[0]) return duplicate.rows[0];
     }
+    // Prevent concurrent management actions on one source update.
     if (
       ["merge", "close-update", "edit-update", "refresh-update"].includes(
         input.kind,
@@ -138,6 +148,7 @@ export async function acceptOperation(input: {
       );
       if (pending.rows.length) throw new PipelineError("update_busy", 409);
     }
+    // Reserve owned edit sessions and ready uploads for map submissions.
     if (input.kind === "update" || input.kind === "edit-update") {
       const session = await client.query<{ status: string; owner_id: string }>(
         "SELECT status,owner_id FROM metro_edit_sessions WHERE id=$1 AND expires_at>now() FOR UPDATE",
@@ -169,6 +180,7 @@ export async function acceptOperation(input: {
       )
         throw new PipelineError("invalid_upload");
     }
+    // Persist the accepted operation and outbox event in one transaction.
     await input.reserve?.(client);
     const result = await client.query<Operation>(
       `INSERT INTO metro_operations(id,kind,scope,idempotency_key,request_digest,actor_id,receipt_digest,status,payload,checkpoint)
@@ -207,6 +219,8 @@ export async function acceptOperation(input: {
   });
 }
 
+/** Loads an operation or raises a stable not found error.
+ * Status, review, and worker workflows use this lookup. */
 export async function getOperation(id: string) {
   const result = await query<Operation>(
     "SELECT * FROM metro_operations WHERE id=$1",
@@ -231,6 +245,8 @@ export function canReviseUpdate(op: Operation) {
   );
 }
 
+/** Checks whether an inactive update can be removed from history.
+ * Update management uses it before deletion. */
 export function canDeleteUpdate(op: Operation) {
   return (
     ["update", "rollback"].includes(op.kind) &&
@@ -244,6 +260,8 @@ export function canDeleteUpdate(op: Operation) {
   );
 }
 
+/** Converts an internal operation into the client status shape.
+ * Mutation responses and status APIs use this view. */
 export function operationView(op: Operation): OperationView {
   return {
     id: op.id,
@@ -272,6 +290,8 @@ export const terminalStates = [
   "published",
   "closed_unmerged",
 ];
+/** Claims a due operation for one worker using a bounded lease.
+ * The worker uses this to prevent concurrent provider writes. */
 export async function leaseOperation(
   id: string,
 ): Promise<{ op: Operation; token: string } | null> {
@@ -283,6 +303,8 @@ export async function leaseOperation(
   );
   return result.rows[0] ? { op: result.rows[0], token } : null;
 }
+/** Persists worker progress and extends its lease after a step.
+ * Operation processors call it around external write intent and results. */
 export async function checkpoint(
   id: string,
   token: string,
@@ -296,6 +318,8 @@ export async function checkpoint(
   );
   if (!result.rowCount) throw new PipelineError("operation_lease_lost", 409);
 }
+/** Stores a terminal or retry state and updates outbox and email jobs.
+ * The worker calls it after processing or handling a failure. */
 export async function finishOperation(
   id: string,
   token: string,
@@ -346,6 +370,8 @@ export async function finishOperation(
   }
 }
 
+/** Requeues an eligible operation while retaining write intent checkpoints.
+ * The administrator retry API calls it after authorization. */
 export async function retryOperation(id: string, actorId: string) {
   return transaction(async (client) => {
     const found = await client.query<Operation>(

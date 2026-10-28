@@ -25,6 +25,9 @@ export interface EditSessionRecord {
   created_at: Date;
   status: string;
 }
+/** Reads the approved default-branch map manifest.
+ * Edit-session creation and freshness checks call it.
+ */
 export async function headManifest() {
   const commit = await currentHead();
   const manifest = parseManifest(
@@ -35,6 +38,7 @@ export async function headManifest() {
 
 /** Resolve only approved default-branch history, pinned to one HEAD snapshot.
  * A revert can restore an older revision, so prefer HEAD over submission dates.
+ * Edit-session creation calls it for downloaded map sources.
  */
 export async function resolveMapBase(knownBase?: string) {
   const value = knownBase?.trim().toLowerCase();
@@ -112,6 +116,9 @@ export async function resolveMapBase(knownBase?: string) {
   }
 }
 
+/** Creates a seven-day draft pinned to an approved map base.
+ * The edit-session API calls it when a collaborator starts editing.
+ */
 export async function createEditSession(
   user: SessionUser,
   knownBaseCommit?: string,
@@ -124,6 +131,9 @@ export async function createEditSession(
   );
   return sessionView(result.rows[0]);
 }
+/** Checks session ownership and optional editability.
+ * Upload and map submission APIs call it before draft changes.
+ */
 export async function ownedEditSession(
   id: string,
   user: SessionUser,
@@ -145,6 +155,9 @@ export async function ownedEditSession(
     throw new PipelineError("edit_session_expired", 409);
   return session;
 }
+/** Builds the public edit-session response with ready assets.
+ * Edit-session creation and read APIs use it.
+ */
 export async function sessionView(
   session: EditSessionRecord,
 ): Promise<EditSession> {
@@ -170,6 +183,9 @@ export async function sessionView(
   };
 }
 
+/** Requires the draft base to match the current approved map.
+ * Map submission and update execution call it before writing.
+ */
 export async function assertFresh(baseRevision: string) {
   const head = await headManifest();
   if (head.manifest.map_revision !== baseRevision)

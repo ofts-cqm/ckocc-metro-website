@@ -33,6 +33,7 @@ export async function reconcileCompletedMaintenance(
     [updateId, repository.key, repository.branch],
   );
   let reconciled = 0;
+  // Reobserve each pending PR action before updating local completion state.
   for (const operation of pending.rows) {
     const plannedHead = operation.checkpoint.refreshCommit;
     if (typeof plannedHead !== "string" || !/^[a-f0-9]{40}$/.test(plannedHead))
@@ -202,6 +203,8 @@ export async function queuePendingMaintenance() {
   }
 }
 
+/** Refreshes an existing map PR against the approved base while preserving write intent.
+ * The worker handles queued refresh update actions and reconciles uncertain results. */
 export async function processMaintenanceSync(
   operation: Operation,
   token: string,
@@ -226,6 +229,7 @@ export async function processMaintenanceSync(
   )
     throw new PipelineError("pr_identity_changed", 409);
 
+  /** Records a refreshed PR branch head on the original update. */
   const record = async (head: string) => {
     // Updating the ref and losing its response must still reconcile this pointer.
     const updated = await query(
@@ -249,6 +253,7 @@ export async function processMaintenanceSync(
     return { updateId: source.id, headSha: head, baseCommit };
   };
 
+  /** Observes the PR branch to recover an uncertain ref update. */
   const observeHead = async () =>
     (
       await client.rest.git.getRef({
@@ -257,6 +262,7 @@ export async function processMaintenanceSync(
         ref: `heads/${pr.head.ref}`,
       })
     ).data.object.sha;
+  // Reconcile a previously moved branch before planning another update.
   if (plannedHead && (await observeHead()) === plannedHead)
     return record(plannedHead);
   // Once an update-ref call is uncertain, only observe; never repeat the write.
@@ -272,6 +278,7 @@ export async function processMaintenanceSync(
   if ((await currentHead()) !== baseCommit)
     return { updateId: source.id, skipped: true };
 
+  // Validate the approved, candidate, and original maps before any rebuild.
   const [approved, candidate, originalBase] = await Promise.all([
     readValidatedMap(baseCommit),
     readValidatedMap(expectedHead),
@@ -291,6 +298,7 @@ export async function processMaintenanceSync(
     candidate.manifest.base_commit_sha !== source.payload.baseCommit
   )
     throw new PipelineError("pr_identity_changed", 409);
+  // Compare PR files and map histories before preparing a refreshed commit.
   const files = await client.paginate(client.rest.pulls.listFiles, {
     owner,
     repo,
@@ -314,6 +322,7 @@ export async function processMaintenanceSync(
   });
   if (comparison.data.behind_by === 0) return record(expectedHead);
 
+  // Construct a refreshed commit that carries forward the candidate map.
   if (!plannedHead) {
     const base = await client.rest.git.getCommit({
       owner,

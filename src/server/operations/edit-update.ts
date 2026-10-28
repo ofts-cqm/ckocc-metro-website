@@ -14,6 +14,8 @@ import {
 import { PipelineError } from "./errors";
 import type { UpdateInput } from "./update";
 
+/** Applies an author edit to the existing website pull request using staged map files.
+ * The update edit action queues this worker after the edit session is submitted. */
 export async function processEditUpdate(action: Operation, token: string) {
   await requireOperationAdmin(action);
   const input = action.payload as UpdateInput & {
@@ -28,8 +30,10 @@ export async function processEditUpdate(action: Operation, token: string) {
   } = await websitePullRequest(input.updateId, commitSha);
   const { owner, repo } = repositoryConfig();
   const ref = `heads/${pr.head.ref}`;
+  /** Reads the live PR branch head to reconcile uncertain edit writes. */
   const observe = async () =>
     (await client.rest.git.getRef({ owner, repo, ref })).data.object.sha;
+  /** Stores the edited PR commit and metadata on the source update. */
   const record = async () => {
     const manifest = action.checkpoint.editManifest as MapManifest;
     if (!manifest || !commitSha)
@@ -66,6 +70,7 @@ export async function processEditUpdate(action: Operation, token: string) {
       mapRevision: manifest.map_revision,
     };
   };
+  /** Aligns PR metadata after the branch update and completes the action. */
   const finish = async () => {
     const manifest = action.checkpoint.editManifest as MapManifest;
     const body = pullRequestTemplate(manifest, input.details);
@@ -91,6 +96,7 @@ export async function processEditUpdate(action: Operation, token: string) {
     }
     return record();
   };
+  // Recover a completed branch move, or stop when its result is uncertain.
   if (commitSha && (await observe()) === commitSha) return finish();
   if (action.checkpoint.editIntent)
     throw new PipelineError("outcome_unknown", 409);
@@ -106,6 +112,7 @@ export async function processEditUpdate(action: Operation, token: string) {
   await assertFresh(input.baseMapRevision);
   for (const number of input.issueNumbers)
     await assertEligibleIssue(number, true);
+  // Validate staged files and build the replacement commit.
   if (!commitSha) {
     await checkpoint(action.id, token, {
       previousPayload: source.payload,
@@ -206,6 +213,7 @@ export async function processEditUpdate(action: Operation, token: string) {
     });
     action.checkpoint.editManifest = manifest;
   }
+  // Recheck the live PR after building the replacement commit.
   const fresh = await websitePullRequest(source.id);
   if (
     fresh.pr.merged ||
@@ -215,6 +223,7 @@ export async function processEditUpdate(action: Operation, token: string) {
     throw new PipelineError("pr_identity_changed", 409);
   await assertFresh(input.baseMapRevision);
   await requireOperationAdmin(action);
+  // Record ref update intent before moving the PR branch.
   await checkpoint(action.id, token, { editIntent: true });
   await client.rest.git.updateRef({
     owner,

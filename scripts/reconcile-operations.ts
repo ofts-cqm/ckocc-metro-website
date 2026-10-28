@@ -4,7 +4,10 @@ import { Pool } from "pg";
 import { reconcileOperations } from "./lib/reconcile-operations";
 
 let pool: Pool | undefined;
+/** Configures a preview or explicit apply run for operation reconciliation.
+ * Operators invoke it through npm run ops:reconcile after checking the target. */
 async function main() {
+  // Resolve the operator's target and keep preview connections read-only.
   const { values } = parseArgs({
     options: {
       prod: { type: "boolean" },
@@ -88,6 +91,7 @@ async function main() {
   );
   // Dynamic ESM import keeps this standalone CLI compatible with Octokit's
   // ESM-only dependencies even though this repository is not type:module.
+  // This provider factory is used only to inspect the targeted repository.
   const github = async () => {
     const { App, Octokit } = await import("octokit");
     const SafeOctokit = Octokit.defaults({

@@ -5,6 +5,8 @@ import { errorResponse, json } from "@/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Summarizes recent email jobs and provider feedback for administrators.
+// The admin email dashboard invokes this to inspect delivery state.
 export async function GET(request: Request) {
   try {
     await requireAdmin(request, { fresh: false });

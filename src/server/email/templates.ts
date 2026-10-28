@@ -55,12 +55,18 @@ const words = {
   },
 };
 
+/** Normalizes a stored locale to a supported email catalog.
+ * Job creation and rendering use it.
+ */
 export function emailLocale(value: string): LocalePath {
   const normalized = value.toLowerCase();
   return normalized === "zh-cn" || normalized === "zh-hk"
     ? normalized
     : "en-us";
 }
+/** Escapes untrusted values before adding them to HTML.
+ * The email renderer uses it for links and submitted text.
+ */
 export function escapeHtml(value: string) {
   return value.replace(
     /[&<>"']/g,
@@ -71,13 +77,18 @@ export function escapeHtml(value: string) {
   );
 }
 
+/** Truncates an optional submitted field by character count.
+ * Notification content rendering uses it for email summaries.
+ */
 function boundedText(value: unknown, limit: number): string {
   return typeof value === "string"
     ? Array.from(value).slice(0, limit).join("")
     : "";
 }
 
-/** Render only public submission fields, never internal operation metadata. */
+/** Render only public submission fields, never internal operation metadata.
+ * The email renderer calls it for operation notifications.
+ */
 export function notificationContent(
   source: Record<string, unknown>,
   locale: string,
@@ -128,6 +139,9 @@ export function notificationContent(
   return sections.filter(Boolean).join("\n\n");
 }
 
+/** Builds localized text and HTML verification or alert mail.
+ * The email sender calls it just before SES submission.
+ */
 export function renderEmail(input: {
   kind: "notification" | "verification";
   locale: string;

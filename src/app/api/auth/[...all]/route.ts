@@ -18,6 +18,8 @@ const loginSchema = z
   })
   .strict();
 
+// Passes session lookup to the authentication adapter.
+// The signed-in UI invokes this to refresh its session state.
 export async function GET(request: Request): Promise<Response> {
   try {
     if (new URL(request.url).pathname !== "/api/auth/get-session")
@@ -28,6 +30,8 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+// Handles allowed email sign-in and sign-out requests.
+// The login workflow applies attempt limits before delegating to the auth adapter.
 export async function POST(request: Request): Promise<Response> {
   try {
     enforceSameOrigin(request);

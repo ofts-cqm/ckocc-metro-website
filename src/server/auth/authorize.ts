@@ -10,7 +10,9 @@ export type ActiveUser = {
   role: "collaborator" | "admin";
 };
 
-/** Also used by workers immediately before performing a collaborator's external write. */
+/** Also used by workers immediately before performing a collaborator's external write.
+ * Queued writes use it to recheck a collaborator before acting.
+ */
 export async function getActiveUser(id: string): Promise<ActiveUser> {
   const result = await query<ActiveUser & { active: boolean }>(
     'SELECT u.id, u.email, u.name, p.role, p.active FROM "user" u JOIN metro_profiles p ON p.user_id = u.id WHERE u.id = $1',
@@ -26,6 +28,9 @@ export async function getActiveUser(id: string): Promise<ActiveUser> {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
 }
 
+/** Validates a Better Auth session against current database state.
+ * Request guards use it before allowing signed-in API access.
+ */
 async function authenticated(request: Request) {
   const session = await getAuth().api.getSession({
     headers: request.headers,
@@ -48,6 +53,9 @@ async function authenticated(request: Request) {
   return { user, session: session.session };
 }
 
+/** Requires a signed-in active collaborator.
+ * Protected API routes call it before reading or changing account data.
+ */
 export async function requireUser(request: Request): Promise<ActiveUser> {
   const user = await optionalUser(request);
   if (!user)
@@ -55,13 +63,18 @@ export async function requireUser(request: Request): Promise<ActiveUser> {
   return user;
 }
 
-/** Missing sessions are anonymous; invalid or disabled sessions still fail authorization. */
+/** Missing sessions are anonymous; invalid or disabled sessions still fail authorization.
+ * Public routes use it to adapt behavior for signed-in visitors.
+ */
 export async function optionalUser(
   request: Request,
 ): Promise<ActiveUser | null> {
   return (await authenticated(request))?.user ?? null;
 }
 
+/** Requires an active admin and, by default, recent sign-in.
+ * Administration APIs use it before privileged changes.
+ */
 export async function requireAdmin(
   request: Request,
   options: { fresh?: boolean } = {},

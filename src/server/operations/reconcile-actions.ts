@@ -6,6 +6,8 @@ import type { Operation } from "./store";
 const actionKinds = ["merge", "close-update", "edit-update", "refresh-update"];
 type StoredOperation = Operation & { lease_until: Date | null };
 
+/** Checks whether a failed PR action has no unresolved external write.
+ * Terminal reconciliation uses it before marking obsolete actions superseded. */
 function canSupersede(op: StoredOperation) {
   return (
     actionKinds.includes(op.kind) &&
@@ -37,6 +39,7 @@ export async function reconcileTerminalActions() {
     [actionKinds, repository.key, repository.branch],
   );
   let reconciled = 0;
+  // Confirm the live PR is terminal, then lock and retire only pre-write actions.
   for (const action of pending.rows) {
     if (!canSupersede(action)) continue;
     let observation: Awaited<ReturnType<typeof recordedPullRequest>>;

@@ -7,6 +7,8 @@ import { reviseUpdate } from "@/server/operations/revise";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Restores an eligible failed map update operation to an editable draft.
+// The update workflow invokes this after a submission needs correction.
 export const POST = route(async (request, context) => {
   enforceSameOrigin(request);
   const user = await requireUser(request);

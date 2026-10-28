@@ -17,6 +17,8 @@ import {
 import { checkpoint, type Operation } from "./store";
 import { PipelineError } from "./errors";
 
+/** Looks for a prior bot issue or comment after an uncertain provider response.
+ * Request and comment workers call this before any possible repeat GitHub write. */
 async function recoverDiscussion(
   op: Operation,
   expectedBody: string | string[],
@@ -91,6 +93,8 @@ async function recoverDiscussion(
   return matches[0];
 }
 
+/** Publishes a public request or comment to GitHub and records the result.
+ * The request and comment APIs queue this operation through the outbox. */
 export async function processDiscussion(op: Operation, token: string) {
   const client = await github();
   const { owner, repo } = repositoryConfig();
@@ -145,6 +149,7 @@ export async function processDiscussion(op: Operation, token: string) {
   if (op.payload.replyToCommentId)
     await assertReplyTarget(issueNumber, Number(op.payload.replyToCommentId));
   await checkpoint(op.id, token, { writeIntent: true });
+  // Write the comment only after checking for a prior matching bot result.
   const result = await client.rest.issues.createComment({
     owner,
     repo,

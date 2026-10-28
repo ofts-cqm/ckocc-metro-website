@@ -18,6 +18,8 @@ import {
 import { checkpoint, getOperation, type Operation } from "./store";
 import { PipelineError } from "./errors";
 
+/** Rechecks the action actor as an active administrator.
+ * Map merge and rollback workers call it before provider mutations. */
 export async function requireOperationAdmin(op: Operation) {
   if (!op.actor_id) throw new PipelineError("unauthorized", 401);
   const user = await getActiveUser(op.actor_id);
@@ -25,10 +27,14 @@ export async function requireOperationAdmin(op: Operation) {
   return user;
 }
 
+/** Reads the recorded website PR for an update operation.
+ * Review and management workflows use it to inspect the live PR. */
 export async function websitePullRequest(id: string, recoveryHead?: string) {
   return inspectWebsitePullRequest(await getOperation(id), recoveryHead);
 }
 
+/** Reads an update and verifies its recorded PR identity.
+ * Reconciliation workflows call it before retiring or recovering actions. */
 export async function recordedPullRequest(id: string) {
   return inspectRecordedPullRequest(await getOperation(id));
 }
@@ -93,6 +99,8 @@ export async function inspectWebsitePullRequest(
   return { op, pr, client };
 }
 
+/** Reads the map files at a commit and validates their manifest and bytes.
+ * Review and maintenance use it before trusting a candidate map revision. */
 export async function readValidatedMap(commit: string) {
   const [json, png, bytes] = await Promise.all([
     readFileAt(commit, MAP_PATHS.json, MAP_LIMITS.json),
@@ -137,6 +145,7 @@ export async function reviewMapUpdate(id: string) {
     review.blockedReason = review.canRollback ? null : "unchanged_map";
     return review;
   }
+  // Inspect required checks for the current PR head and base commits.
   // Read checks even when another rule blocks merging, so the review can show
   // their actual state. Only trust GitHub Actions on the current PR commits.
   try {
@@ -244,6 +253,8 @@ export async function reviewMapUpdate(id: string) {
     candidate.manifest.base_map_revision !== current.manifest.map_revision
   )
     throw new PipelineError("pr_identity_changed", 409);
+  // Compare candidate and base history to assess merge safety.
+  // Confirm the candidate includes the current base before allowing merge.
   const comparison = await client.rest.repos.compareCommits({
     owner,
     repo,
@@ -274,6 +285,8 @@ export async function reviewMapUpdate(id: string) {
   return review;
 }
 
+/** Builds a rollback action input from a reviewed map update.
+ * The rollback API calls this before accepting the operation. */
 export async function rollbackInput(id: string, expectedBase: string) {
   const review = await reviewMapUpdate(id);
   if (!review.merged || !review.canRollback)
@@ -293,11 +306,14 @@ export async function rollbackInput(id: string, expectedBase: string) {
   };
 }
 
+/** Merges a reviewed map PR and records publication follow-up.
+ * The merge API queues this worker after administrator authorization. */
 export async function processMerge(op: Operation, token: string) {
   await requireOperationAdmin(op);
   const id = String(op.payload.updateId);
   const { pr, client } = await websitePullRequest(id);
   const { owner, repo } = repositoryConfig();
+  /** Persists a verified merge and flags publication follow-up. */
   const recordMerge = async (mergeCommitSha: string | null) => {
     const result = {
       prNumber: pr.number,

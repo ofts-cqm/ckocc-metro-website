@@ -15,6 +15,9 @@ const options = {
   outputLen: 32,
 } satisfies Options;
 
+/** Checks the shared password length policy.
+ * Credential creation and verification use it before hashing.
+ */
 export function validPassword(password: unknown): password is string {
   return (
     typeof password === "string" &&
@@ -23,7 +26,9 @@ export function validPassword(password: unknown): password is string {
   );
 }
 
-/** The native library generates a cryptographically random salt for every hash. */
+/** The native library generates a cryptographically random salt for every hash.
+ * Invites, resets, and Better Auth credential updates call it.
+ */
 export function hashPassword(password: string): Promise<string> {
   if (!validPassword(password))
     throw new Error(
@@ -32,6 +37,9 @@ export function hashPassword(password: string): Promise<string> {
   return hash(password, options);
 }
 
+/** Checks a candidate password without exposing hash errors.
+ * Sign-in and email-address change workflows call it.
+ */
 export async function verifyPassword(input: {
   hash: string;
   password: string;
@@ -44,6 +52,9 @@ export async function verifyPassword(input: {
   }
 }
 
+/** Detects credential hashes below current Argon2 settings.
+ * Successful sign-in uses it for a safe opportunistic upgrade.
+ */
 export function needsRehash(encoded: string): boolean {
   const match = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$/.exec(encoded);
   return (

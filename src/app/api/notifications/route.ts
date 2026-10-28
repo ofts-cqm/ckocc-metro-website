@@ -9,6 +9,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Lists notifications for the signed-in account.
+// The inbox workflow invokes this to show unread activity.
 export async function GET(request: Request): Promise<Response> {
   try {
     const user = await requireUser(request);
@@ -17,6 +19,8 @@ export async function GET(request: Request): Promise<Response> {
     return errorResponse(error);
   }
 }
+// Marks notifications read through a selected notification ID.
+// The inbox workflow invokes this and receives the updated list.
 export async function POST(request: Request): Promise<Response> {
   try {
     enforceSameOrigin(request);

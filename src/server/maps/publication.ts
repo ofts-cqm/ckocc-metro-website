@@ -21,6 +21,9 @@ type Publication = {
   height: number;
   manifest: { summary: string; operation_id?: string };
 };
+/** Reads the last successfully published map pointer.
+ * Public map APIs and pages use it.
+ */
 export async function publishedMap(): Promise<PublishedMap | null> {
   const result = await query<Publication>(
     "SELECT * FROM metro_publications WHERE repository=$1",
@@ -41,11 +44,14 @@ export async function publishedMap(): Promise<PublishedMap | null> {
     : null;
 }
 
-/** Always reconcile HEAD, never the (possibly old) webhook's commit. */
+/** Always reconcile HEAD, never the (possibly old) webhook's commit.
+ * Publication maintenance calls it after a default-branch change.
+ */
 export async function synchronizePublication() {
   const { key } = repositoryConfig();
   const lock = await getPool().connect();
   try {
+    // Serialize publication and pin all reads to one approved HEAD commit.
     await lock.query("BEGIN");
     const taken = await lock.query<{ locked: boolean }>(
       "SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked",
@@ -69,6 +75,7 @@ export async function synchronizePublication() {
       await lock.query("COMMIT");
       return { revision: manifest.map_revision, commitSha: commit };
     }
+    // Validate the exact assets and publish revision-addressed images.
     const [json, png] = await Promise.all([
       readFileAt(commit, MAP_PATHS.json, MAP_LIMITS.json),
       readFileAt(commit, MAP_PATHS.png, MAP_LIMITS.png),
@@ -78,6 +85,7 @@ export async function synchronizePublication() {
     // No pointer change until full validation, public delivery, and the latest-head recheck succeed.
     if ((await currentHead()) !== commit)
       throw new PipelineError("publication_outdated", 503);
+    // Advance the public pointer only after the HEAD recheck succeeds.
     await lock.query(
       `INSERT INTO metro_publications(repository,commit_sha,revision,manifest,json_sha,png_sha,image_url,overview_url,width,height)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(repository) DO UPDATE SET commit_sha=$2,revision=$3,manifest=$4,
@@ -110,6 +118,9 @@ export async function synchronizePublication() {
   }
 }
 
+/** Reconciles map operation status with GitHub pull requests.
+ * Map maintenance calls it after review or merge activity.
+ */
 export async function synchronizePullRequests() {
   const client = await github();
   const { owner, repo, key } = repositoryConfig();

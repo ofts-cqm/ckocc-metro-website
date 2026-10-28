@@ -7,6 +7,8 @@ import { launchPendingEmailJobs } from "@/server/email/jobs";
 import { errorResponse, json, readJson } from "@/server/http";
 import { enforceSameOrigin } from "@/server/security";
 export const runtime = "nodejs";
+// Requests a verification email for the signed-in account.
+// The email settings workflow invokes this and queues durable email work.
 export async function POST(request: Request) {
   try {
     enforceSameOrigin(request);
