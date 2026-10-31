@@ -184,7 +184,7 @@ export type SessionUser = {
   id: string;
   email: string;
   name: string;
-  role: "collaborator" | "admin";
+  role: "subscriber" | "collaborator" | "admin";
 };
 export type ApiErrorBody = {
   error: { code: string; message: string; fields?: Record<string, string[]> };

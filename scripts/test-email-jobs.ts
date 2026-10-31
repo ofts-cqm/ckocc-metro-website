@@ -36,6 +36,9 @@ async function main() {
       "002_pipeline.sql",
       "003_email_notifications.sql",
       "004_email_daily_limit.sql",
+      "005_subscriber_accounts.sql",
+      "006_map_subscriptions.sql",
+      "007_account_deletion.sql",
     ])
       await query(
         await readFile(resolve(process.cwd(), `migrations/${name}`), "utf8"),

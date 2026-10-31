@@ -10,11 +10,14 @@ import {
   RefreshCw,
   ShieldCheck,
   UserRound,
+  Trash2,
 } from "lucide-react";
 import type { OperationView } from "@/lib/contracts";
+import { subscriberMessages } from "@/lib/subscriber-messages";
 import { languageTags } from "@/lib/i18n";
 import {
   api,
+  ApiError,
   EmptyState,
   ErrorNotice,
   Field,
@@ -35,7 +38,7 @@ type Account = {
   id: string;
   email: string;
   name: string;
-  role: "admin" | "collaborator";
+  role: "subscriber" | "admin" | "collaborator";
   active: boolean;
   createdAt: string;
 };
@@ -48,7 +51,7 @@ type Invitation = {
 };
 type InvitationRecord = Omit<Invitation, "url"> & {
   displayName: string;
-  kind: "invite" | "reset";
+  kind: "invite" | "reset" | "subscribe";
   consumedAt: string | null;
   revokedAt: string | null;
 };
@@ -70,7 +73,13 @@ export function AdminPage() {
 function AdminWorkspace() {
   const m = useMessages();
   const locale = useLocale();
-  const { user } = useAuth();
+  const { user, refresh: refreshAuth } = useAuth();
+  const sm = subscriberMessages(locale);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [nameConflicts, setNameConflicts] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [roles, setRoles] = useState<Record<string, Account["role"]>>({});
   const accounts = useApi<{ accounts: Account[] }>("/api/admin/accounts");
   const settings = useApi<{ publicWritesPaused: boolean }>(
     "/api/admin/settings",
@@ -150,6 +159,86 @@ function AdminWorkspace() {
       setBusy(null);
     }
   }
+  async function permanentlyDelete(account: Account) {
+    if (
+      !window.confirm(
+        sm.confirmDelete
+          .replace("{name}", account.name)
+          .replace("{email}", account.email),
+      )
+    )
+      return;
+    setBusy(account.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api(`/api/admin/accounts/${account.id}/delete`, {
+        method: "POST",
+        body: JSON.stringify({ confirmation: account.id }),
+      });
+      if (invitation?.email === account.email) setInvitation(null);
+      accounts.refresh();
+      invitations.refresh();
+      operations.refresh();
+      setNotice(sm.accountDeleted);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function changeRole(account: Account) {
+    const nextRole = roles[account.id] ?? account.role;
+    const label =
+      nextRole === "admin"
+        ? m.administrator
+        : nextRole === "collaborator"
+          ? m.collaborator
+          : sm.subscriber;
+    if (
+      !window.confirm(
+        sm.confirmRole
+          .replace("{name}", names[account.id]?.trim() || account.name)
+          .replace("{role}", label),
+      )
+    )
+      return;
+    setBusy(account.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api(`/api/admin/accounts/${account.id}/role`, {
+        method: "POST",
+        body: JSON.stringify({
+          role: nextRole,
+          ...(names[account.id]?.trim()
+            ? { displayName: names[account.id].trim() }
+            : {}),
+        }),
+      });
+      setRoles((current) => {
+        const next = { ...current };
+        delete next[account.id];
+        return next;
+      });
+      setNames((current) => {
+        const next = { ...current };
+        delete next[account.id];
+        return next;
+      });
+      setNameConflicts((current) => ({ ...current, [account.id]: false }));
+      accounts.refresh();
+      invitations.refresh();
+      setNotice(m.settingsSaved);
+      if (account.id === user?.id) refreshAuth();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "name_conflict")
+        setNameConflicts((current) => ({ ...current, [account.id]: true }));
+      setError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
   async function revoke(id: string) {
     setBusy(id);
     setError(null);
@@ -214,7 +303,16 @@ function AdminWorkspace() {
   }
   return (
     <>
-      <ErrorNotice error={error} />
+      {error instanceof ApiError && error.code === "name_conflict" ? (
+        <Notice tone="warning">{sm.nameConflict}</Notice>
+      ) : error instanceof ApiError &&
+        ["account_delete_busy", "cannot_delete_self"].includes(error.code) ? (
+        <Notice tone="error">
+          {error.code === "cannot_delete_self" ? sm.deleteSelf : sm.deleteBusy}
+        </Notice>
+      ) : (
+        <ErrorNotice error={error} />
+      )}
       {notice && <Notice tone="success">{notice}</Notice>}
       {invitation && (
         <section className="invitation-result form-panel">
@@ -360,12 +458,66 @@ function AdminWorkspace() {
                   <small>
                     {account.role === "admin"
                       ? m.administrator
-                      : m.collaborator}
+                      : account.role === "subscriber"
+                        ? sm.subscriber
+                        : m.collaborator}
                     <span className="dot-separator">·</span>
                     {account.active ? m.enabled : m.disabled}
                   </small>
                 </div>
                 <div className="account-actions">
+                  <label>
+                    <span className="sr-only">
+                      {sm.roleLabel}: {account.name}
+                    </span>
+                    <select
+                      aria-label={`${sm.roleLabel}: ${account.name}`}
+                      disabled={Boolean(busy)}
+                      value={roles[account.id] ?? account.role}
+                      onChange={(event) =>
+                        setRoles((current) => ({
+                          ...current,
+                          [account.id]: event.target.value as Account["role"],
+                        }))
+                      }
+                    >
+                      <option value="subscriber">{sm.subscriber}</option>
+                      <option value="collaborator">{m.collaborator}</option>
+                      <option value="admin">{m.administrator}</option>
+                    </select>
+                  </label>
+                  {((roles[account.id] ?? account.role) !== account.role ||
+                    nameConflicts[account.id] ||
+                    names[account.id]) && (
+                    <label>
+                      <span>{sm.replacementName}</span>
+                      <input
+                        aria-label={`${sm.replacementName}: ${account.name}`}
+                        maxLength={64}
+                        value={names[account.id] ?? ""}
+                        placeholder={account.name}
+                        disabled={Boolean(busy)}
+                        onChange={(event) =>
+                          setNames((current) => ({
+                            ...current,
+                            [account.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  )}
+                  <button
+                    className="button button-secondary"
+                    disabled={
+                      Boolean(busy) ||
+                      ((roles[account.id] ?? account.role) === account.role &&
+                        (!names[account.id]?.trim() ||
+                          names[account.id].trim() === account.name))
+                    }
+                    onClick={() => void changeRole(account)}
+                  >
+                    {sm.saveRole}
+                  </button>
                   <button
                     className="button button-secondary"
                     disabled={Boolean(busy)}
@@ -385,6 +537,14 @@ function AdminWorkspace() {
                     }
                   >
                     {account.active ? m.disable : m.enable}
+                  </button>
+                  <button
+                    className="button button-danger"
+                    disabled={Boolean(busy) || account.id === user?.id}
+                    onClick={() => void permanentlyDelete(account)}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                    {sm.deleteAccount}
                   </button>
                 </div>
               </article>
@@ -420,7 +580,9 @@ function AdminWorkspace() {
                       ? m.resetPassword
                       : invite.role === "admin"
                         ? m.administrator
-                        : m.collaborator}
+                        : invite.role === "subscriber"
+                          ? sm.subscriber
+                          : m.collaborator}
                     <span className="dot-separator">·</span>
                     {m.expires} {formatDate(invite.expiresAt, locale)}
                   </small>

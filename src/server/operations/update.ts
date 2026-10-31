@@ -1,5 +1,5 @@
 import { query } from "@/server/db";
-import { getActiveUser } from "@/server/auth/authorize";
+import { getActiveCollaborator } from "@/server/auth/authorize";
 import {
   github,
   repositoryConfig,
@@ -32,7 +32,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   const user =
     op.kind === "rollback"
       ? await requireOperationAdmin(op)
-      : await getActiveUser(op.actor_id);
+      : await getActiveCollaborator(op.actor_id);
   if (!user) throw new PipelineError("unauthorized", 401);
   const input = op.payload as UpdateInput;
   const client = await github();
@@ -207,7 +207,7 @@ export async function processUpdate(op: Operation, leaseToken: string) {
   }
   await assertFresh(input.baseMapRevision);
   if (op.kind === "rollback") await requireOperationAdmin(op);
-  if (!(await getActiveUser(op.actor_id)))
+  if (!(await getActiveCollaborator(op.actor_id)))
     throw new PipelineError("unauthorized", 401);
   await checkpoint(op.id, leaseToken, { branchIntent: true });
   try {

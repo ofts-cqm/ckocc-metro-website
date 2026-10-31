@@ -13,7 +13,10 @@ export async function GET(request: Request): Promise<Response> {
     const search = new URL(request.url).searchParams.get("q") ?? "";
     return json({
       suggestions: await mentionSuggestions(search),
-      remaining: user ? null : await guestMentionRemaining(request),
+      remaining:
+        user && user.role !== "subscriber"
+          ? null
+          : await guestMentionRemaining(request),
     });
   } catch (error) {
     return errorResponse(error);

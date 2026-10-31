@@ -3,7 +3,10 @@ import { get, head, del, put, BlobNotFoundError } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import type { SessionUser } from "@/lib/contracts";
 import { query, transaction } from "@/server/db";
-import { requireUser } from "@/server/auth/authorize";
+import {
+  requireCollaborator,
+  getActiveCollaborator,
+} from "@/server/auth/authorize";
 import { enforceSameOrigin } from "@/server/security";
 import {
   MAP_LIMITS,
@@ -16,7 +19,7 @@ import { ownedEditSession } from "@/server/maps/sessions";
 export interface UploadRecord {
   id: string;
   edit_session_id: string;
-  owner_id: string;
+  owner_id: string | null;
   kind: "json" | "png";
   pathname: string;
   url: string | null;
@@ -115,7 +118,7 @@ export async function handleStagingUpload(
     token: stagingToken(),
     onBeforeGenerateToken: async (pathname, clientPayload) => {
       enforceSameOrigin(request);
-      const user = await requireUser(request);
+      const user = await requireCollaborator(request);
       let uploadId: string;
       try {
         uploadId = JSON.parse(clientPayload || "{}").uploadId;
@@ -150,6 +153,9 @@ export async function handleStagingUpload(
       };
       if (typeof uploadId !== "string" || !/^[a-f0-9-]{36}$/.test(uploadId))
         throw new PipelineError("invalid_upload");
+      const upload = await uploadRecord(uploadId);
+      if (!upload.owner_id) throw new PipelineError("account_deleted", 403);
+      await getActiveCollaborator(upload.owner_id);
       await completeUpload(uploadId);
     },
   });

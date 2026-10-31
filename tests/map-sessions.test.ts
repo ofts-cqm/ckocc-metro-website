@@ -37,7 +37,7 @@ const user = {
 };
 mock.module("../src/server/auth/authorize.ts", {
   namedExports: {
-    requireUser: async () => {
+    requireCollaborator: async () => {
       if (!authenticated) throw new PipelineError("unauthorized", 401);
       return { ...user, role: userRole };
     },

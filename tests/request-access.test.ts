@@ -64,7 +64,7 @@ mock.module("../src/server/db/index.ts", {
         return { rows: [], rowCount: validSession ? 1 : 0 };
       if (sql.includes("SELECT u.id, u.email, u.name"))
         return { rows: [{ ...user, active }], rowCount: 1 };
-      if (sql.includes('SELECT 1 FROM "user" WHERE lower(btrim(name))')) {
+      if (sql.includes('SELECT 1 FROM "user" u JOIN metro_profiles')) {
         nameChecks++;
         const claimed = String(values?.[0]).toLowerCase();
         const taken = registeredNames.some(
@@ -140,7 +140,11 @@ mock.module("../src/server/operations/store.ts", {
         actor_id: input.actorId ?? null,
         receipt_digest: null,
         payload: input.payload,
-        checkpoint: { repository: "test/map", baseBranch: "main" },
+        checkpoint: {
+          repository: "test/map",
+          baseBranch: "main",
+          authorRole: input.authorRole,
+        },
         result: {},
         status: "accepted",
         attempts: 1,
@@ -597,14 +601,16 @@ test("closing rejects foreign origins, non-request issues, PRs and extra authori
 });
 
 test("the worker rechecks account and issue eligibility before closing", async () => {
-  for (const change of ["disabled", "unlabeled", "missing-actor"]) {
+  for (const change of ["disabled", "unlabeled", "missing-actor", "demoted"]) {
     active = true;
+    user.role = "collaborator";
     issue = makeIssue();
     assert.equal(
       (await handlers.postCloseIssue(request({}), context)).status,
       202,
     );
     if (change === "disabled") active = false;
+    if (change === "demoted") user.role = "subscriber";
     if (change === "unlabeled") issue.labels = [];
     if (change === "missing-actor") operation.actor_id = null;
     await executeOperation(operation.id);
@@ -637,4 +643,62 @@ test("a timeout after GitHub closes a request recovers without repeating the wri
   assert.deepEqual(finished, ["failed", "succeeded"]);
   assert.equal(writes.length, 1);
   assert.equal(invalidations, 1);
+});
+
+test("subscribers use fixed unverified names and guest mention quotas", async () => {
+  user.role = "subscriber";
+  registeredNames = [];
+  challengeAction = "comment";
+  const response = await handlers.postComment(
+    request({
+      ...comment,
+      gameName: "Forged",
+      comment: "Hello @Alice Player",
+      mentions: [{ userId: "alice", start: 6, end: 19 }],
+    }),
+    context,
+  );
+  assert.equal(response.status, 202, await response.text());
+  assert.equal(accepted[0].payload.gameName, user.name);
+  assert.equal(accepted[0].authorRole, "subscriber");
+  assert.equal(typeof accepted[0].reserve, "function");
+  operation.result = { commentId: 88 };
+  listedComments = [
+    {
+      id: 88,
+      body: commentTemplate(operation.payload as never, operation.id, false),
+      user: { login: "metro-bot" },
+      created_at: new Date(),
+      updated_at: new Date(),
+    },
+  ];
+  user.role = "admin";
+  assert.equal(
+    (await issueComments(42, 1)).comments[0].nameVerification,
+    "unverified",
+  );
+});
+
+test("subscribers cannot close requests, read map sources or begin editing", async () => {
+  user.role = "subscriber";
+  assert.equal(
+    (await handlers.postCloseIssue(request({}), context)).status,
+    403,
+  );
+  assert.equal((await handlers.getMapHead(request({}), context)).status, 403);
+  assert.equal(
+    (await handlers.postEditSession(request({}), context)).status,
+    403,
+  );
+  assert.equal((await handlers.getUpdates(request({}), context)).status, 403);
+  assert.equal(accepted.length, 0);
+});
+
+test("deleted account operations cannot execute as guest work", async () => {
+  operation.actor_id = null;
+  operation.checkpoint.accountDeleted = true;
+  const result = await executeOperation(operation.id);
+  assert.equal(result.retry, false);
+  assert.equal(writes.length, 0);
+  assert.equal(finished.at(-1), "failed");
 });

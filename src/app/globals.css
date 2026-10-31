@@ -707,6 +707,44 @@ code {
   display: grid;
   place-items: center;
 }
+.subscription-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px 24px;
+  margin: 18px 0 2rem;
+  padding: 22px 24px;
+  border: 1px solid #cbdccf;
+  border-left: 4px solid #286b59;
+  border-radius: 12px;
+  background: #edf4ed;
+}
+.subscription-callout-copy {
+  flex: 1 1 250px;
+  min-width: 0;
+}
+.subscription-callout h2 {
+  margin: 0 0 6px;
+  color: #193e35;
+  font-size: 19px;
+  line-height: 1.3;
+}
+.subscription-callout p {
+  margin: 0;
+  color: #506650;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.subscription-callout .button {
+  max-width: 100%;
+  min-height: 48px;
+  text-align: center;
+}
+.subscription-callout .button svg {
+  flex-shrink: 0;
+}
+
 .below-map {
   display: flex;
   justify-content: space-between;
@@ -2470,6 +2508,7 @@ code {
 }
 .account-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   border-bottom: 1px solid #e7edde;
@@ -2479,7 +2518,7 @@ code {
   border: 0;
 }
 .account-info {
-  flex: 1;
+  flex: 1 1 200px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -2500,8 +2539,17 @@ code {
 }
 .account-actions {
   display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-left: 54px;
   align-items: center;
   gap: 9px;
+}
+.account-actions > label {
+  max-width: 100%;
+}
+.account-actions input {
+  width: min(100%, 280px);
 }
 .account-actions .button {
   font-size: 10px;

@@ -15,14 +15,15 @@ export async function createCredentialAccount(
   input: {
     email: string;
     name: string;
-    role: "collaborator" | "admin";
+    role: "subscriber" | "collaborator" | "admin";
+    emailVerified?: boolean;
     passwordHash: string;
   },
 ): Promise<string> {
   const id = randomUUID();
   await client.query(
-    'INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, false)',
-    [id, input.name, input.email],
+    'INSERT INTO "user" (id, name, email, "emailVerified") VALUES ($1, $2, $3, $4)',
+    [id, input.name, input.email, input.emailVerified ?? false],
   );
   await client.query(
     'INSERT INTO "account" (id, "accountId", "providerId", "userId", password) VALUES ($1, $2, \'credential\', $2, $3)',

@@ -383,3 +383,81 @@ test("a send delayed across UTC midnight reserves the new day before submission"
     mock.timers.reset();
   }
 });
+
+test("map updates use their own consent and the shared notification cap", async () => {
+  process.env.EMAIL_NOTIFICATIONS_PER_DAY = "1";
+  preference = {
+    enabled: false,
+    consent_version: 1,
+    map_updates: true,
+    map_consent_version: 2,
+  };
+  user.role = "subscriber";
+  job.payload = {
+    notificationKind: "map-update",
+    summary: "New stations <script>",
+  };
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(sends, 1);
+  assert.match(sent.Content.Simple.Subject.Data, /metro map has been updated/);
+  assert.doesNotMatch(
+    sent.Content.Simple.Body.Text.Data,
+    /notifications=open|issues\//,
+  );
+  assert.match(sent.Content.Simple.Body.Html.Data, /&lt;script&gt;/);
+  job.id = "00000000-0000-4000-8000-000000000003";
+  job.status = "pending";
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(sends, 1);
+  assert.equal(job.error_code, "daily_email_limit");
+});
+
+test("map opt-out and demotion invalidate queued emails independently", async () => {
+  preference = {
+    enabled: true,
+    consent_version: 2,
+    map_updates: false,
+    map_consent_version: 3,
+  };
+  job.payload = { notificationKind: "map-update" };
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(job.error_code, "consent_changed");
+  job.status = "pending";
+  job.payload = { notificationKind: "reply" };
+  user.role = "subscriber";
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(job.error_code, "role_changed");
+  assert.equal(sends, 0);
+});
+
+test("discussion and map updates consume the same account daily allowance", async () => {
+  process.env.EMAIL_NOTIFICATIONS_PER_DAY = "2";
+  preference = {
+    enabled: true,
+    consent_version: 2,
+    map_updates: true,
+    map_consent_version: 2,
+  };
+  user.role = "collaborator";
+  await jobs.executeEmailJob(String(job.id));
+  job.id = "00000000-0000-4000-8000-000000000002";
+  job.payload = { notificationKind: "map-update" };
+  job.status = "pending";
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(sends, 2);
+  job.id = "00000000-0000-4000-8000-000000000003";
+  job.payload = { notificationKind: "reply" };
+  job.status = "pending";
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(job.error_code, "daily_email_limit");
+  assert.equal(sends, 2);
+  assert.equal(slots.length, 2);
+});
+
+test("deleted account jobs cannot submit another email", async () => {
+  job.user_id = null;
+  await jobs.executeEmailJob(String(job.id));
+  assert.equal(sends, 0);
+  assert.equal(job.status, "skipped");
+  assert.equal(job.error_code, "account_deleted");
+});

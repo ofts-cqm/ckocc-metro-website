@@ -15,7 +15,7 @@ import { reserveNotificationSlot } from "./quota";
 export interface EmailJob {
   id: string;
   operation_id: string | null;
-  user_id: string;
+  user_id: string | null;
   kind: "notification" | "verification";
   address: string;
   consent_version: number | null;
@@ -67,7 +67,7 @@ export async function enqueueOperationEmails(
      JOIN metro_email_preferences p ON p.user_id=u.id
      WHERE ${notificationRecipientWhere("u.id")}
        AND ($1::uuid IS NULL OR o.id=$1) AND o.updated_at>=launch.launch_cutoff
-       AND profile.active AND u."emailVerified" AND p.enabled
+       AND profile.active AND profile.role IN ('collaborator','admin') AND u."emailVerified" AND p.enabled
        AND p.consent_at IS NOT NULL AND p.consent_at<=o.updated_at
        AND u."updatedAt"<=o.updated_at
      ON CONFLICT(operation_id,user_id) DO NOTHING RETURNING id`,
@@ -79,6 +79,57 @@ export async function enqueueOperationEmails(
       [inserted.rows.map((row) => row.id)],
     );
   return inserted.rows.length;
+}
+
+/** Drain one bounded recipient page per durable publication event. Snapshot the
+ * account cursor, then recheck consent and address at delivery as for discussion mail. */
+export async function enqueuePublicationEmails(client: PoolClient) {
+  const events = await client.query<{
+    id: string;
+    recipient_cursor: string | null;
+  }>(`SELECT id,recipient_cursor FROM metro_map_publication_events
+      WHERE NOT recipients_complete ORDER BY published_at,id LIMIT 5 FOR UPDATE SKIP LOCKED`);
+  let count = 0;
+  for (const event of events.rows) {
+    const recipients = await client.query<{ id: string }>(
+      `SELECT u.id FROM "user" u
+       JOIN metro_profiles profile ON profile.user_id=u.id
+       JOIN metro_email_preferences p ON p.user_id=u.id
+       JOIN metro_map_publication_events e ON e.id=$1
+       WHERE ($2::text IS NULL OR u.id>$2) AND profile.active AND u."emailVerified"
+         AND p.map_updates AND p.map_consent_at<=e.published_at
+         AND u."updatedAt"<=e.published_at ORDER BY u.id LIMIT 250`,
+      [event.id, event.recipient_cursor],
+    );
+    if (recipients.rows.length) {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO metro_email_jobs(id,publication_event_id,user_id,kind,address,consent_version,locale,payload)
+         SELECT gen_random_uuid(),e.id,u.id,'notification',lower(u.email),p.map_consent_version,p.locale,
+           jsonb_build_object('notificationKind','map-update','summary',e.summary,'revision',e.revision)
+         FROM "user" u JOIN metro_email_preferences p ON p.user_id=u.id
+         JOIN metro_map_publication_events e ON e.id=$1 WHERE u.id=ANY($2::text[])
+           AND p.map_updates AND p.map_consent_at<=e.published_at AND u."updatedAt"<=e.published_at
+         ON CONFLICT(publication_event_id,user_id) DO NOTHING RETURNING id`,
+        [event.id, recipients.rows.map((row) => row.id)],
+      );
+      if (inserted.rows.length)
+        await client.query(
+          "INSERT INTO metro_email_outbox(job_id) SELECT unnest($1::uuid[]) ON CONFLICT DO NOTHING",
+          [inserted.rows.map((row) => row.id)],
+        );
+      count += inserted.rows.length;
+    }
+    await client.query(
+      `UPDATE metro_map_publication_events SET recipient_cursor=COALESCE($2,recipient_cursor),
+       recipients_complete=$3 WHERE id=$1`,
+      [
+        event.id,
+        recipients.rows.at(-1)?.id ?? null,
+        recipients.rows.length < 250,
+      ],
+    );
+  }
+  return count;
 }
 
 async function finish(
@@ -138,8 +189,9 @@ async function deliverySkipReason(
     emailVerified: boolean;
     active: boolean;
     auth_version: number;
+    role: string;
   }>(
-    `SELECT u.email,u."emailVerified",profile.active,profile.auth_version
+    `SELECT u.email,u."emailVerified",profile.active,profile.auth_version,profile.role
          FROM "user" u JOIN metro_profiles profile ON profile.user_id=u.id
          WHERE u.id=$1 FOR SHARE OF u,profile`,
     [job.user_id],
@@ -150,16 +202,22 @@ async function deliverySkipReason(
     const preferences = await client.query<{
       enabled: boolean;
       consent_version: number;
+      map_updates: boolean;
+      map_consent_version: number;
     }>(
-      "SELECT enabled,consent_version FROM metro_email_preferences WHERE user_id=$1 FOR SHARE",
+      "SELECT enabled,consent_version,map_updates,map_consent_version FROM metro_email_preferences WHERE user_id=$1 FOR SHARE",
       [job.user_id],
     );
     const preference = preferences.rows[0];
-    if (user.email.toLowerCase() !== job.address) skip = "address_changed";
+    const mapUpdate = job.payload.notificationKind === "map-update";
+    if (!mapUpdate && user.role === "subscriber") skip = "role_changed";
+    else if (user.email.toLowerCase() !== job.address) skip = "address_changed";
     else if (!user.emailVerified) skip = "address_unverified";
     else if (
-      !preference?.enabled ||
-      preference.consent_version !== job.consent_version
+      !(mapUpdate ? preference?.map_updates : preference?.enabled) ||
+      (mapUpdate
+        ? preference?.map_consent_version
+        : preference?.consent_version) !== job.consent_version
     )
       skip = "consent_changed";
   }
@@ -214,6 +272,13 @@ export async function executeEmailJob(
   );
   const job = claimed.rows[0];
   if (!job) return { retry: false, delay: 0 };
+  if (!job.user_id) {
+    await transaction((client) =>
+      finish(client, job, "skipped", "account_deleted"),
+    );
+    return { retry: false, delay: 0 };
+  }
+  const userId = job.user_id;
   let submissionStarted = false;
   let rejection: ReturnType<typeof classifySendFailure> | undefined;
   try {
@@ -228,7 +293,11 @@ export async function executeEmailJob(
       const reservationTime = new Date();
       const quota =
         job.kind === "notification"
-          ? await reserveNotificationSlot(client, job, reservationTime)
+          ? await reserveNotificationSlot(
+              client,
+              { id: job.id, user_id: userId },
+              reservationTime,
+            )
           : { allowed: true, last: false };
       if (!quota.allowed) {
         await finish(client, job, "skipped", "daily_email_limit");
@@ -236,7 +305,7 @@ export async function executeEmailJob(
       }
       const unsubscribeToken =
         job.kind === "notification"
-          ? await createUnsubscribeToken(client, job.user_id, job.address)
+          ? await createUnsubscribeToken(client, userId, job.address)
           : undefined;
       return {
         unsubscribeToken,
@@ -367,9 +436,35 @@ export async function launchPendingEmailJobs() {
   return launched;
 }
 
+/** Advance recipient pagination and launch pagination together so large lists do
+ * not wait for the next cron tick. Jobs retain their own retry/outcome semantics. */
+export async function drainPublicationEmailPage() {
+  if (!emailEnabled()) return { remaining: false, progress: false };
+  const discovered = await transaction(enqueuePublicationEmails);
+  const launched = await launchPendingEmailJobs();
+  const pending = await query<{ remaining: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM metro_map_publication_events WHERE NOT recipients_complete)
+       OR EXISTS(SELECT 1 FROM metro_email_outbox b JOIN metro_email_jobs j ON j.id=b.job_id
+         WHERE b.state='pending' AND j.status='pending') AS remaining`,
+  );
+  return {
+    remaining: pending.rows[0].remaining,
+    progress: discovered > 0 || launched > 0,
+  };
+}
+
+export async function launchPublicationEmailDrain() {
+  if (!emailEnabled()) return;
+  const { start } = await import("workflow/api");
+  const { mapEmailWorkflow } = await import("@/workflows/map-emails");
+  await start(mapEmailWorkflow, []);
+}
+
 export async function repairEmailJobs() {
-  const discovered = await transaction((client) =>
-    enqueueOperationEmails(client),
+  const discovered = await transaction(
+    async (client) =>
+      (await enqueueOperationEmails(client)) +
+      (await enqueuePublicationEmails(client)),
   );
   // An abandoned sending lease may already have reached SES. Never reset it to pending.
   const uncertain = await query(
@@ -380,5 +475,9 @@ export async function repairEmailJobs() {
     FROM metro_email_jobs j WHERE j.id=b.job_id AND j.status='pending'
     AND b.state IN ('launching','started') AND b.updated_at<now()-interval '10 minutes'`);
   const launched = await launchPendingEmailJobs();
+  const { sendPendingSubscriberInvitations } =
+    await import("./subscriber-invitations");
+  await sendPendingSubscriberInvitations();
+  await launchPublicationEmailDrain();
   return { discovered, launched, uncertain: uncertain.rowCount || 0 };
 }

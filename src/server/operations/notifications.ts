@@ -4,7 +4,7 @@ import type { NotificationItem } from "@/lib/contracts";
 import { PipelineError } from "./errors";
 
 export function notificationRecipientWhere(user = "$1") {
-  return `o.status='succeeded' AND (
+  return `o.status='succeeded' AND EXISTS (SELECT 1 FROM metro_profiles recipient_profile WHERE recipient_profile.user_id=${user} AND recipient_profile.active AND recipient_profile.role IN ('collaborator','admin')) AND (
   ((o.kind='comment' OR (o.kind='request' AND o.payload->>'kind'='general')) AND
    o.payload->'mentions' @> jsonb_build_array(jsonb_build_object('userId',${user}::text)))
   OR (o.kind='comment' AND EXISTS (SELECT 1 FROM metro_operations parent

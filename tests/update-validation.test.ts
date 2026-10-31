@@ -63,7 +63,7 @@ mock.module("../src/server/db/index.ts", {
   },
 });
 mock.module("../src/server/auth/authorize.ts", {
-  namedExports: { requireUser: async () => user },
+  namedExports: { requireCollaborator: async () => user },
 });
 mock.module("../src/server/security/index.ts", {
   namedExports: { enforceSameOrigin: () => {} },

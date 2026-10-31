@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { subscriberMessages } from "@/lib/subscriber-messages";
 import {
   api,
   ErrorNotice,
@@ -19,6 +20,7 @@ type Preferences = {
   email: string;
   verified: boolean;
   enabled: boolean;
+  mapUpdates: boolean;
   locale: string;
   pendingAddress: string | null;
   suppressed: boolean;
@@ -27,6 +29,7 @@ export function EmailSettingsPage() {
   const m = useMessages();
   const locale = useLocale();
   const auth = useAuth();
+  const subscription = subscriberMessages(locale);
   const settings = useApi<{ preferences: Preferences }>(
     auth.user ? "/api/email/preferences" : null,
   );
@@ -36,8 +39,10 @@ export function EmailSettingsPage() {
   const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
   const [enabledDraft, setEnabledDraft] = useState<boolean | null>(null);
+  const [mapDraft, setMapDraft] = useState<boolean | null>(null);
   useEffect(() => {
     setEnabledDraft(null);
+    setMapDraft(null);
   }, [settings.data]);
   async function perform(action: () => Promise<unknown>, success: string) {
     setBusy(true);
@@ -57,6 +62,8 @@ export function EmailSettingsPage() {
     }
   }
   const value = settings.data?.preferences;
+  const subscriber = auth.user?.role === "subscriber";
+  const verificationRequired = subscriber && !value?.verified;
   function changeAddress(event: FormEvent) {
     event.preventDefault();
     void perform(
@@ -116,33 +123,72 @@ export function EmailSettingsPage() {
                 {m.emailSendVerification}
               </button>
             )}
-            <Field label={m.emailNotifications} hint={m.emailNotificationsHint}>
+            {verificationRequired && (
+              <Notice>{subscription.verificationRequired}</Notice>
+            )}
+            <Field
+              label={subscription.mapEmails}
+              hint={subscription.mapEmailHint}
+            >
               <label>
                 <input
                   type="checkbox"
-                  checked={enabledDraft ?? value.enabled}
+                  disabled={verificationRequired}
+                  checked={mapDraft ?? value.mapUpdates ?? false}
                   onChange={async (event) => {
-                    const enabled = event.target.checked;
-                    setEnabledDraft(enabled);
+                    const mapUpdates = event.target.checked;
+                    setMapDraft(mapUpdates);
                     const saved = await perform(
                       () =>
                         api("/api/email/preferences", {
                           method: "POST",
-                          body: JSON.stringify({ enabled, locale }),
+                          body: JSON.stringify({
+                            enabled: subscriber ? false : value.enabled,
+                            mapUpdates,
+                            locale,
+                          }),
                         }),
                       m.emailPreferencesSaved,
                     );
-                    if (!saved) setEnabledDraft(null);
+                    if (!saved) setMapDraft(null);
                   }}
                 />{" "}
-                {m.emailOptIn}
+                {subscription.mapEmails}
               </label>
             </Field>
+            <p>{subscription.quotaHint}</p>
+            {!subscriber && (
+              <Field
+                label={subscription.discussionEmails}
+                hint={m.emailNotificationsHint}
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={enabledDraft ?? value.enabled}
+                    onChange={async (event) => {
+                      const enabled = event.target.checked;
+                      setEnabledDraft(enabled);
+                      const saved = await perform(
+                        () =>
+                          api("/api/email/preferences", {
+                            method: "POST",
+                            body: JSON.stringify({ enabled, locale }),
+                          }),
+                        m.emailPreferencesSaved,
+                      );
+                      if (!saved) setEnabledDraft(null);
+                    }}
+                  />{" "}
+                  {m.emailOptIn}
+                </label>
+              </Field>
+            )}
           </fieldset>
           <form onSubmit={changeAddress}>
             <h2>{m.emailChange}</h2>
             <p>{m.emailChangeHint}</p>
-            <fieldset disabled={busy}>
+            <fieldset disabled={busy || verificationRequired}>
               <Field label={m.emailNewAddress}>
                 <input
                   type="email"

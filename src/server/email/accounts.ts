@@ -14,7 +14,11 @@ import { EMAIL_TOKEN_PATTERN, tokenDigest, tokenValue } from "./tokens";
 
 const localeSchema = z.enum(["en-us", "zh-cn", "zh-hk"]);
 export const preferencesSchema = z
-  .object({ enabled: z.boolean(), locale: localeSchema })
+  .object({
+    enabled: z.boolean(),
+    mapUpdates: z.boolean().optional(),
+    locale: localeSchema,
+  })
   .strict();
 export const verificationSchema = z
   .object({
@@ -44,12 +48,13 @@ export async function emailSettings(userId: string) {
     email: string;
     verified: boolean;
     enabled: boolean;
+    mapUpdates: boolean;
     locale: string;
     pendingAddress: string | null;
     suppressed: boolean;
   }>(
     `SELECT u.email, u."emailVerified" AS verified, COALESCE(e.enabled,false) AS enabled,
-      COALESCE(e.locale,'en-us') AS locale,
+      COALESCE(e.locale,'en-us') AS locale, COALESCE(e.map_updates,false) AS "mapUpdates",
       (SELECT t.address FROM metro_email_tokens t WHERE t.user_id=u.id AND t.purpose='change'
        AND t.consumed_at IS NULL AND t.expires_at>now() AND t.auth_version=p.auth_version
        AND t.source_email=lower(u.email) ORDER BY t.created_at DESC LIMIT 1) AS "pendingAddress",
@@ -69,12 +74,19 @@ export async function setEmailPreferences(
 ) {
   await transaction(async (client) => {
     await lockIdentityStore(client);
-    const active = await client.query(
-      "SELECT user_id FROM metro_profiles WHERE user_id=$1 AND active FOR UPDATE",
+    const active = await client.query<{ role: string; verified: boolean }>(
+      `SELECT p.role,u."emailVerified" AS verified FROM metro_profiles p
+       JOIN "user" u ON u.id=p.user_id WHERE p.user_id=$1 AND p.active FOR UPDATE OF p,u`,
       [userId],
     );
     if (!active.rowCount)
       throw new AppError("unauthorized", "Please sign in again.", 401);
+    if (active.rows[0].role === "subscriber" && !active.rows[0].verified)
+      throw new AppError(
+        "email_unverified",
+        "Verify your email before changing preferences.",
+        403,
+      );
     await client.query(
       `INSERT INTO metro_email_preferences (user_id,enabled,locale,consent_version,consent_at)
       VALUES ($1,$2,$3,1,CASE WHEN $2 THEN now() ELSE NULL END)
@@ -82,8 +94,20 @@ export async function setEmailPreferences(
       consent_version=metro_email_preferences.consent_version + CASE WHEN metro_email_preferences.enabled<>EXCLUDED.enabled THEN 1 ELSE 0 END,
       consent_at=CASE WHEN EXCLUDED.enabled AND NOT metro_email_preferences.enabled THEN now() ELSE metro_email_preferences.consent_at END,
       updated_at=now()`,
-      [userId, input.enabled, input.locale],
+      [
+        userId,
+        active.rows[0].role !== "subscriber" && input.enabled,
+        input.locale,
+      ],
     );
+    if (input.mapUpdates !== undefined)
+      await client.query(
+        `UPDATE metro_email_preferences SET map_updates=$2,
+         map_consent_version=map_consent_version+CASE WHEN map_updates<>$2 THEN 1 ELSE 0 END,
+         map_consent_at=CASE WHEN $2 AND NOT map_updates THEN now() ELSE map_consent_at END,
+         updated_at=now() WHERE user_id=$1`,
+        [userId, input.mapUpdates],
+      );
   });
 }
 
@@ -226,7 +250,7 @@ export async function consumeEmailToken(
       // An old mailbox's link cannot alter preferences for a replacement mailbox.
       if (row.address !== row.email.toLowerCase()) throw invalidLink();
       await client.query(
-        `UPDATE metro_email_preferences SET enabled=false,consent_version=consent_version+1,updated_at=now() WHERE user_id=$1`,
+        `UPDATE metro_email_preferences SET enabled=false,consent_version=consent_version+1,map_updates=false,map_consent_version=map_consent_version+1,updated_at=now() WHERE user_id=$1`,
         [row.user_id],
       );
     } else {
@@ -253,7 +277,7 @@ export async function consumeEmailToken(
       if (row.purpose === "change") {
         await revokeUserSessions(client, row.user_id);
         await client.query(
-          "UPDATE metro_email_preferences SET consent_version=consent_version+1,consent_at=CASE WHEN enabled THEN now() ELSE consent_at END,updated_at=now() WHERE user_id=$1",
+          "UPDATE metro_email_preferences SET consent_version=consent_version+1,consent_at=CASE WHEN enabled THEN now() ELSE consent_at END,map_consent_version=map_consent_version+1,map_consent_at=CASE WHEN map_updates THEN now() ELSE map_consent_at END,updated_at=now() WHERE user_id=$1",
           [row.user_id],
         );
       }

@@ -1,3 +1,4 @@
+import { verifiedAuthor } from "./attribution";
 import type { RequestPayload, CommentPayload } from "@/lib/contracts";
 import {
   github,
@@ -120,7 +121,7 @@ export async function processDiscussion(op: Operation, token: string) {
   const body = commentTemplate(
     op.payload as unknown as CommentPayload,
     op.id,
-    !!op.actor_id,
+    verifiedAuthor(op),
     issueUrl,
   );
   if (op.checkpoint.discussionResult)
@@ -128,7 +129,7 @@ export async function processDiscussion(op: Operation, token: string) {
   if (op.checkpoint.writeIntent)
     return recoverDiscussion(
       op,
-      op.actor_id
+      verifiedAuthor(op)
         ? [
             body,
             commentTemplate(

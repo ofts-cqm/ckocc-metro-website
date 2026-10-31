@@ -24,7 +24,7 @@ test("gallery rotates, wraps manually, and pauses for hover, focus, and the paus
   await page.goto("/en-us");
   const gallery = page.locator("#gallery");
   const counter = gallery.locator(".gallery-counter");
-  await expect(page.locator(".below-map + #gallery")).toBeAttached();
+  await expect(page.locator(".subscription-callout + #gallery")).toBeAttached();
   await expect(gallery.getByRole("img")).toHaveCount(1);
   await expect(counter).toHaveText("1 / 17");
   await expect(

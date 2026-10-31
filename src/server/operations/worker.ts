@@ -33,6 +33,8 @@ export async function executeOperation(
   if (!leased) return { retry: false, delay: 0 };
   const { op, token } = leased;
   try {
+    if (op.checkpoint.accountDeleted)
+      throw new PipelineError("account_deleted", 403);
     const repository = repositoryConfig();
     if (
       op.checkpoint.repository !== repository.key ||
@@ -41,6 +43,11 @@ export async function executeOperation(
       throw new PipelineError("repository_configuration_changed", 409);
     if (op.actor_id) {
       const actor = await getActiveUser(op.actor_id);
+      if (
+        actor.role === "subscriber" &&
+        !["request", "comment"].includes(op.kind)
+      )
+        throw new PipelineError("forbidden", 403);
       if (op.kind === "sync" && actor.role !== "admin")
         throw new PipelineError("forbidden", 403);
     }

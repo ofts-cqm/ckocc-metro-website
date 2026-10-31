@@ -1,5 +1,5 @@
 import { query, transaction } from "@/server/db";
-import { getActiveUser } from "@/server/auth/authorize";
+import { getActiveCollaborator } from "@/server/auth/authorize";
 import {
   currentHead,
   MAP_PATHS,
@@ -22,7 +22,7 @@ export async function reconcileCompletedMaintenance(
   updateId: string,
   actorId: string,
 ) {
-  const actor = await getActiveUser(actorId);
+  const actor = await getActiveCollaborator(actorId);
   if (actor.role !== "admin") throw new PipelineError("forbidden", 403);
   const repository = repositoryConfig();
   const pending = await query<Operation>(
@@ -157,7 +157,7 @@ export async function queueMaintenanceSync(
       baseMapRevision: source.payload.baseMapRevision,
     },
     authorize: async () => {
-      await getActiveUser(source.actor_id!);
+      await getActiveCollaborator(source.actor_id!);
     },
   });
   const { launchOperation } = await import("./outbox");
@@ -183,7 +183,7 @@ export async function queuePendingMaintenance() {
       continue;
     // Disabled authors must not block reconciliation of every other pending PR.
     try {
-      await getActiveUser(source.actor_id);
+      await getActiveCollaborator(source.actor_id);
     } catch (error) {
       if (statusOf(error) === 401) continue;
       throw error;
@@ -207,7 +207,7 @@ export async function processMaintenanceSync(
   token: string,
 ) {
   if (!operation.actor_id) throw new PipelineError("unauthorized", 401);
-  await getActiveUser(operation.actor_id);
+  await getActiveCollaborator(operation.actor_id);
   const input = operation.payload;
   const expectedHead = String(input.headSha),
     baseCommit = String(input.baseCommit);
@@ -373,7 +373,7 @@ export async function processMaintenanceSync(
     throw new PipelineError("pr_identity_changed", 409);
   if ((await currentHead()) !== baseCommit)
     return { updateId: source.id, skipped: true };
-  await getActiveUser(operation.actor_id);
+  await getActiveCollaborator(operation.actor_id);
   await checkpoint(operation.id, token, { refreshIntent: true });
   try {
     await client.rest.git.updateRef({

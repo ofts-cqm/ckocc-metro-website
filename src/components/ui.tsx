@@ -261,16 +261,22 @@ export function SiteShell({
   const [menu, setMenu] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const auth = useApi<{ user: SessionUser | null }>("/api/auth/session");
+  const collaborator =
+    !!auth.data?.user && auth.data.user.role !== "subscriber";
   const inbox = useApi<{
     notifications: NotificationItem[];
     unreadCount: number;
-  }>(auth.data?.user ? "/api/notifications" : null);
+  }>(collaborator ? "/api/notifications" : null);
   useEffect(() => {
     if (auth.loading || !auth.data) return;
     const url = new URL(window.location.href);
     if (url.searchParams.get("notifications") !== "open") return;
     if (!auth.data.user) {
       router.replace(localeHref(locale, "/login?next=notifications"));
+      return;
+    }
+    if (auth.data.user.role === "subscriber") {
+      router.replace(localeHref(locale, "/settings"));
       return;
     }
     setInboxOpen(true);
@@ -346,7 +352,7 @@ export function SiteShell({
                 {m.map}
               </Link>
               <Link href={localeHref(locale, "/#requests")}>{m.requests}</Link>
-              {auth.data?.user && (
+              {collaborator && (
                 <Link
                   className={pathname.endsWith("/updates") ? "active" : ""}
                   href={localeHref(locale, "/updates")}
@@ -364,7 +370,7 @@ export function SiteShell({
               )}
             </nav>
             <div className="header-actions">
-              {auth.data?.user && (
+              {collaborator && (
                 <div className="notification-menu">
                   <button
                     className="icon-button"
@@ -481,10 +487,18 @@ export function SiteShell({
               <Link
                 href={localeHref(
                   locale,
-                  auth.data?.user ? "/updates" : "/login",
+                  collaborator
+                    ? "/updates"
+                    : auth.data?.user
+                      ? "/settings"
+                      : "/login",
                 )}
               >
-                {auth.data?.user ? m.updates : m.login}
+                {collaborator
+                  ? m.updates
+                  : auth.data?.user
+                    ? m.emailSettings
+                    : m.login}
               </Link>
               {auth.data?.user && (
                 <Link href={localeHref(locale, "/settings")}>
@@ -708,7 +722,7 @@ export function Protected({
         </Link>
       </EmptyState>
     );
-  if (admin && user.role !== "admin")
+  if (user.role === "subscriber" || (admin && user.role !== "admin"))
     return (
       <EmptyState title={m.forbiddenTitle} description={m.forbiddenBody} />
     );
