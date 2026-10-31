@@ -7,10 +7,10 @@ export type ActiveUser = {
   id: string;
   email: string;
   name: string;
-  role: "collaborator" | "admin";
+  role: "subscriber" | "collaborator" | "admin";
 };
 
-/** Also used by workers immediately before performing a collaborator's external write. */
+/** Load current account identity; privileged workers use getActiveCollaborator instead. */
 export async function getActiveUser(id: string): Promise<ActiveUser> {
   const result = await query<ActiveUser & { active: boolean }>(
     'SELECT u.id, u.email, u.name, p.role, p.active FROM "user" u JOIN metro_profiles p ON p.user_id = u.id WHERE u.id = $1',
@@ -20,7 +20,7 @@ export async function getActiveUser(id: string): Promise<ActiveUser> {
   if (!user?.active)
     throw new AppError(
       "unauthorized",
-      "Please sign in with an active collaborator account.",
+      "Please sign in with an active account.",
       401,
     );
   return { id: user.id, email: user.email, name: user.name, role: user.role };
@@ -48,6 +48,7 @@ async function authenticated(request: Request) {
   return { user, session: session.session };
 }
 
+/** Account access includes verification recovery; preference mutations separately require verified subscribers. */
 export async function requireUser(request: Request): Promise<ActiveUser> {
   const user = await optionalUser(request);
   if (!user)
@@ -82,5 +83,22 @@ export async function requireAdmin(
       401,
     );
   }
+  return user;
+}
+
+/** Privileged mutations must check the role again at execution time. */
+export async function getActiveCollaborator(id: string): Promise<ActiveUser> {
+  const user = await getActiveUser(id);
+  if (user.role === "subscriber")
+    throw new AppError("forbidden", "Collaborator access is required.", 403);
+  return user;
+}
+
+export async function requireCollaborator(
+  request: Request,
+): Promise<ActiveUser> {
+  const user = await requireUser(request);
+  if (user.role === "subscriber")
+    throw new AppError("forbidden", "Collaborator access is required.", 403);
   return user;
 }

@@ -4,6 +4,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import { z } from "zod";
 import { query, transaction } from "@/server/db";
 import { AppError } from "@/server/http";
+import { subscriberInvitationToken } from "@/server/email/subscriber-invitations";
 import { siteOrigin } from "./config";
 import {
   createCredentialAccount,
@@ -47,8 +48,9 @@ type Invitation = QueryResultRow & {
   id: string;
   email: string;
   display_name: string;
-  role: "collaborator" | "admin";
-  kind: "invite" | "reset";
+  role: "subscriber" | "collaborator" | "admin";
+  kind: "invite" | "reset" | "subscribe";
+  locale: string;
   user_id: string | null;
   expires_at: Date;
   consumed_at: Date | null;
@@ -99,7 +101,8 @@ export async function createInvitation(
 async function issueLink(
   client: PoolClient,
   actor: string,
-  input: z.infer<typeof invitationSchema> & {
+  input: Omit<z.infer<typeof invitationSchema>, "role"> & {
+    role: Invitation["role"];
     kind: "invite" | "reset";
     userId: string | null;
   },
@@ -149,7 +152,7 @@ export async function createPasswordReset(
     const result = await client.query<{
       email: string;
       name: string;
-      role: "collaborator" | "admin";
+      role: "subscriber" | "collaborator" | "admin";
       active: boolean;
     }>(
       'SELECT u.email, u.name, p.role, p.active FROM "user" u JOIN metro_profiles p ON p.user_id = u.id WHERE u.id = $1 FOR UPDATE OF p',
@@ -192,11 +195,11 @@ export async function inspectInvitation(token: string) {
 
 export async function redeemInvitation(
   input: z.infer<typeof redeemSchema>,
-): Promise<void> {
+): Promise<{ email: string; subscribed: boolean }> {
   // Cheap validation precedes the expensive hash. The transaction rechecks after hashing.
   await inspectInvitation(input.token);
   const passwordHash = await hashPassword(input.password);
-  await transaction(async (client) => {
+  return transaction(async (client) => {
     await lockIdentityStore(client);
     const result = await client.query<Invitation>(
       "SELECT * FROM metro_invitations WHERE token_digest = $1 FOR UPDATE",
@@ -211,18 +214,30 @@ export async function redeemInvitation(
     )
       throw invalidInvitation();
     let userId: string;
-    if (invitation.kind === "invite") {
+    if (invitation.kind === "invite" || invitation.kind === "subscribe") {
       const existing = await client.query(
         'SELECT id FROM "user" WHERE lower(email) = $1',
         [invitation.email],
       );
       if (existing.rowCount) throw invalidInvitation();
+      await assertNameAvailable(
+        client,
+        invitation.display_name,
+        invitation.role,
+      );
       userId = await createCredentialAccount(client, {
         email: invitation.email,
         name: invitation.display_name,
         role: invitation.role,
         passwordHash,
+        emailVerified: invitation.kind === "subscribe",
       });
+      if (invitation.kind === "subscribe")
+        await client.query(
+          `INSERT INTO metro_email_preferences(user_id,enabled,locale,map_updates,map_consent_version,map_consent_at)
+           VALUES($1,false,$2,true,1,now())`,
+          [userId, invitation.locale],
+        );
     } else {
       if (!invitation.user_id) throw invalidInvitation();
       userId = invitation.user_id;
@@ -243,5 +258,96 @@ export async function redeemInvitation(
       [invitation.id],
     );
     await audit(client, userId, `${invitation.kind}.redeem`, invitation.id);
+    return {
+      email: invitation.email,
+      subscribed: invitation.kind === "subscribe",
+    };
+  });
+}
+
+/** Only privileged names are reserved; subscribers cannot claim their attribution. */
+export async function assertNameAvailable(
+  client: PoolClient,
+  name: string,
+  _role: string,
+  excludeId?: string,
+) {
+  const conflicts = await client.query(
+    `SELECT 1 FROM "user" u JOIN metro_profiles p ON p.user_id=u.id
+     WHERE lower(btrim(u.name))=lower(btrim($1)) AND ($2::text IS NULL OR u.id<>$2)
+     AND p.role IN ('collaborator','admin') LIMIT 1`,
+    [name, excludeId ?? null],
+  );
+  if (conflicts.rowCount)
+    throw new AppError(
+      "name_conflict",
+      "This name conflicts with an existing account. Choose another name before promotion.",
+      409,
+    );
+}
+
+export const subscriptionSchema = invitationSchema
+  .omit({ role: true })
+  .extend({
+    challenge: z.string().max(2048),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict();
+
+/** Persist invitation and delivery intent atomically; never change existing accounts. */
+export async function requestSubscription(
+  input: z.infer<typeof subscriptionSchema>,
+) {
+  return transaction(async (client) => {
+    await lockIdentityStore(client);
+    const existing = await client.query(
+      'SELECT id FROM "user" WHERE lower(email)=$1',
+      [input.email],
+    );
+    if (existing.rowCount)
+      throw new AppError(
+        "subscription_email_taken",
+        "This email already has an account. Sign in to manage your subscription.",
+        409,
+      );
+    await assertNameAvailable(client, input.displayName, "subscriber");
+    const pending = await client.query<{
+      id: string;
+      kind: string;
+      display_name: string;
+    }>(
+      `SELECT id,kind,display_name FROM metro_invitations WHERE email=$1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>now()`,
+      [input.email],
+    );
+    if (pending.rowCount) {
+      const invitation = pending.rows[0];
+      if (
+        invitation.kind === "subscribe" &&
+        invitation.display_name === input.displayName
+      )
+        return invitation.id;
+      throw new AppError(
+        "subscription_invitation_pending",
+        "An invitation is already pending for this email. Use that invitation or wait for it to expire before requesting different details.",
+        409,
+      );
+    }
+    const id = randomUUID();
+    await client.query(
+      `INSERT INTO metro_invitations(id,token_digest,kind,email,display_name,role,expires_at,locale)
+      VALUES($1,$2,'subscribe',$3,$4,'subscriber',now()+interval '24 hours',$5)`,
+      [
+        id,
+        tokenDigest(subscriberInvitationToken(id)),
+        input.email,
+        input.displayName,
+        input.locale.toLowerCase(),
+      ],
+    );
+    await client.query(
+      "INSERT INTO metro_subscription_mail(invitation_id) VALUES($1)",
+      [id],
+    );
+    return id;
   });
 }

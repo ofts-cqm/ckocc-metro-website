@@ -1,4 +1,5 @@
 "use client";
+import { subscriberMessages } from "@/lib/subscriber-messages";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
@@ -312,7 +313,7 @@ function MentionField({
       )}
       <p className="field-hint">
         {m.mentionHint}{" "}
-        {!auth.user &&
+        {(!auth.user || auth.user.role === "subscriber") &&
           quota.data?.remaining != null &&
           m.mentionRemaining.replace("{count}", String(quota.data.remaining))}
       </p>
@@ -523,7 +524,13 @@ export function RequestFormPage() {
           >
             <Field
               label={m.gameName}
-              hint={auth.user ? m.accountGameNameHint : m.gameNameHint}
+              hint={
+                auth.user?.role === "subscriber"
+                  ? subscriberMessages(locale).fixedName
+                  : auth.user
+                    ? m.accountGameNameHint
+                    : m.gameNameHint
+              }
             >
               <input
                 name="gameName"
@@ -938,7 +945,13 @@ export function CommentForm({
           <fieldset disabled={busy || !ready || !attemptReady || auth.loading}>
             <Field
               label={m.gameName}
-              hint={auth.user ? m.accountGameNameHint : m.gameNameHint}
+              hint={
+                auth.user?.role === "subscriber"
+                  ? subscriberMessages(locale).fixedName
+                  : auth.user
+                    ? m.accountGameNameHint
+                    : m.gameNameHint
+              }
             >
               <input
                 name="gameName"

@@ -3,6 +3,10 @@ import { catalogs } from "@/lib/i18n/catalogs";
 
 const words = {
   "en-us": {
+    mapUpdate: "The metro map has been updated",
+    viewMap: "View map",
+    mapLimit:
+      "You won’t receive any more notification emails today. Check the website for further map updates.",
     verification: "Verify your email address",
     verify: "Confirm email address",
     verificationBody:
@@ -20,6 +24,9 @@ const words = {
       "To avoid sending you too many emails, you won’t receive any more notification emails today. Please check your website notifications for new messages.",
   },
   "zh-cn": {
+    mapUpdate: "地铁线路图已更新",
+    viewMap: "查看线路图",
+    mapLimit: "您今天将不再收到通知邮件。请到网站查看后续线路图更新。",
     verification: "验证您的电子邮箱",
     verify: "确认电子邮箱",
     verificationBody:
@@ -37,6 +44,9 @@ const words = {
       "为避免邮件过多，您今天将不再收到新的通知邮件。请前往网站通知查看新消息。",
   },
   "zh-hk": {
+    mapUpdate: "地鐵路綫圖已更新",
+    viewMap: "查看路綫圖",
+    mapLimit: "您今天將不再收到通知電郵。請到網站查看後續路綫圖更新。",
     verification: "驗證您的電郵地址",
     verify: "確認電郵地址",
     verificationBody:
@@ -155,26 +165,33 @@ export function renderEmail(input: {
   const sender = String(input.payload.sender || text.actor)
     .replace(/[\r\n]/g, " ")
     .slice(0, 120);
-  const summary = `${sender} ${action}`;
+  const mapUpdate = kind === "map-update";
+  const summary = mapUpdate ? text.mapUpdate : `${sender} ${action}`;
+  const open = mapUpdate ? text.viewMap : text.open;
   const issue = Number(input.payload.issueNumber);
-  const link = `${base}/issues/${Number.isSafeInteger(issue) && issue > 0 ? issue : ""}`;
+  const link = mapUpdate
+    ? base
+    : `${base}/issues/${Number.isSafeInteger(issue) && issue > 0 ? issue : ""}`;
   const settings = `${base}/settings`;
   const unsubscribe = `${base}/email/unsubscribe#token=${encodeURIComponent(input.unsubscribeToken!)}`;
   const source = input.payload.source;
-  const body =
-    source && typeof source === "object" && !Array.isArray(source)
+  const body = mapUpdate
+    ? boundedText(input.payload.summary, 2000)
+    : source && typeof source === "object" && !Array.isArray(source)
       ? notificationContent(source as Record<string, unknown>, locale)
       : "";
-  const notifications = `${base}?notifications=open`;
+  const notifications = mapUpdate ? base : `${base}?notifications=open`;
+  const dailyLimit = mapUpdate ? text.mapLimit : text.dailyLimit;
+  const notificationsLabel = mapUpdate ? text.viewMap : text.notifications;
   const limitText = input.dailyLimitReached
-    ? `\n\n${text.dailyLimit}\n${text.notifications}: ${notifications}`
+    ? `\n\n${dailyLimit}\n${notificationsLabel}: ${notifications}`
     : "";
   const limitHtml = input.dailyLimitReached
-    ? `<p>${text.dailyLimit} <a href="${escapeHtml(notifications)}">${text.notifications}</a></p>`
+    ? `<p>${dailyLimit} <a href="${escapeHtml(notifications)}">${notificationsLabel}</a></p>`
     : "";
   return {
     subject: `CKOCC Metro — ${summary}`,
-    text: `${summary}${body ? `\n\n${body}` : ""}\n\n${text.open}: ${link}${limitText}\n\n${text.settings}: ${settings}\n${text.unsubscribe}: ${unsubscribe}`,
-    html: `<p>${escapeHtml(summary)}</p>${body ? `<div style="white-space: pre-wrap; overflow-wrap: anywhere">${escapeHtml(body).replace(/\r\n?|\n/g, "<br>")}</div>` : ""}<p><a href="${escapeHtml(link)}">${text.open}</a></p>${limitHtml}<p><a href="${escapeHtml(settings)}">${text.settings}</a> · <a href="${escapeHtml(unsubscribe)}">${text.unsubscribe}</a></p>`,
+    text: `${summary}${body ? `\n\n${body}` : ""}\n\n${open}: ${link}${limitText}\n\n${text.settings}: ${settings}\n${text.unsubscribe}: ${unsubscribe}`,
+    html: `<p>${escapeHtml(summary)}</p>${body ? `<div style="white-space: pre-wrap; overflow-wrap: anywhere">${escapeHtml(body).replace(/\r\n?|\n/g, "<br>")}</div>` : ""}<p><a href="${escapeHtml(link)}">${open}</a></p>${limitHtml}<p><a href="${escapeHtml(settings)}">${text.settings}</a> · <a href="${escapeHtml(unsubscribe)}">${text.unsubscribe}</a></p>`,
   };
 }

@@ -13,6 +13,7 @@ import {
   TrainFront,
 } from "lucide-react";
 import type { IssueSummary, PublishedMap } from "@/lib/contracts";
+import { SubscribeCallout } from "./subscription";
 import { MapViewer } from "./map-viewer";
 import { HomeGallery } from "./gallery";
 import {
@@ -333,6 +334,7 @@ export function HomePage() {
           <ArrowDown size={14} />
         </a>
       </div>
+      <SubscribeCallout />
       <HomeGallery />
       <RequestBoard />
       <section className="contributor-banner">

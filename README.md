@@ -10,7 +10,8 @@ As more people joined the work, keeping track of line updates, requests, comment
 - Browse metro screenshots in the homepage slideshow or explore the full photo gallery.
 - Submit general thoughts and requests for new or updated lines without creating an account.
 - Discuss requests through comments, replies, and mentions.
-- Follow replies and mentions in the website inbox, with optional verified email notifications for account holders.
-- Let invited collaborators download the current map, edit it externally, and submit map updates for review.
-- Let administrators review and merge updates, create rollback proposals, manage accounts, and coordinate outstanding requests.
+- Subscribe to map updates by email, with verification and email preferences. Notification emails are subject to a daily limit.
+- Let collaborators and administrators follow replies and mentions in the website inbox, with optional verified email notifications.
+- Let collaborators download the current map, edit it externally, and submit map updates for review.
+- Let administrators review and merge updates, create rollback proposals, manage account roles, and coordinate outstanding requests.
 - Use the website in English, Simplified Chinese, or Hong Kong Traditional Chinese.

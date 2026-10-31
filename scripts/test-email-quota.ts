@@ -137,6 +137,9 @@ async function main() {
     ])
       await job("existing", status);
     await migrate("004_email_daily_limit.sql");
+    await migrate("005_subscriber_accounts.sql");
+    await migrate("006_map_subscriptions.sql");
+    await migrate("007_account_deletion.sql");
     assert.equal(
       await slots("existing"),
       3,

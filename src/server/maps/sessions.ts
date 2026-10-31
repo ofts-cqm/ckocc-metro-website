@@ -18,7 +18,7 @@ import type { UploadRecord } from "@/server/storage/staging";
 
 export interface EditSessionRecord {
   id: string;
-  owner_id: string;
+  owner_id: string | null;
   base_commit: string;
   base_revision: string;
   expires_at: Date;

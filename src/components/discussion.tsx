@@ -249,16 +249,18 @@ export function IssuePage({ number }: { number: number }) {
             <div className="original-link">
               <ExternalAnchor href={issue.url}>{m.github}</ExternalAnchor>
             </div>
-            {auth.user && issue.state === "open" && (
-              <CloseIssueAction
-                key={`${number}:${auth.user.id}`}
-                number={number}
-                onSuccess={() => {
-                  issueResult.refresh();
-                  commentsResult.refresh();
-                }}
-              />
-            )}
+            {auth.user &&
+              auth.user.role !== "subscriber" &&
+              issue.state === "open" && (
+                <CloseIssueAction
+                  key={`${number}:${auth.user.id}`}
+                  number={number}
+                  onSuccess={() => {
+                    issueResult.refresh();
+                    commentsResult.refresh();
+                  }}
+                />
+              )}
             <ErrorNotice error={issueResult.error} />
           </article>
           <section className="discussion-comments">

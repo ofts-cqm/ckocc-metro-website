@@ -53,6 +53,7 @@ export async function acceptOperation(input: {
   scope: string;
   key: string;
   actorId?: string;
+  authorRole?: "guest" | "subscriber" | "collaborator" | "admin";
   receiptToken?: string;
   payload: Record<string, unknown>;
   authorize: () => Promise<void>;
@@ -183,6 +184,7 @@ export async function acceptOperation(input: {
         input.receiptToken ? sha256(input.receiptToken) : null,
         JSON.stringify(input.payload),
         JSON.stringify({
+          ...(input.authorRole ? { authorRole: input.authorRole } : {}),
           repository: repository.key,
           baseBranch: repository.branch,
         }),
@@ -220,6 +222,7 @@ export function canReviseUpdate(op: Operation) {
   return (
     op.kind === "update" &&
     !op.checkpoint.deletedAt &&
+    !op.checkpoint.accountDeleted &&
     (op.status === "closed_unmerged" ||
       (["failed", "needs_reconciliation"].includes(op.status) &&
         op.checkpoint.autoRetry !== true &&
@@ -235,6 +238,7 @@ export function canDeleteUpdate(op: Operation) {
   return (
     ["update", "rollback"].includes(op.kind) &&
     !op.checkpoint.deletedAt &&
+    !op.checkpoint.accountDeleted &&
     (["closed_unmerged", "merged", "published"].includes(op.status) ||
       (["failed", "needs_reconciliation"].includes(op.status) &&
         op.checkpoint.autoRetry !== true &&
@@ -357,6 +361,7 @@ export async function retryOperation(id: string, actorId: string) {
     if (
       op.checkpoint.revisedEditSessionId ||
       op.checkpoint.deletedAt ||
+      op.checkpoint.accountDeleted ||
       !["failed", "outcome_unknown", "accepted"].includes(op.status)
     )
       throw new PipelineError("operation_not_retryable", 409);

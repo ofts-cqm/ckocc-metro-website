@@ -69,7 +69,7 @@ npm run db:local:stop
 
 For an externally provisioned development database, skip initialization and configure its URL. Migrations need a **direct** database URL because the lock spans transactions; ordinary app traffic can use pooling. For a one-off direct connection, set `DATABASE_URL` in your shell securely before running `npm run db:migrate`, then remove the override to restore app configuration.
 
-Bootstrap runs in an interactive terminal, checks database prerequisites, and prompts for email, display name, and a hidden 8–128 character password. It refuses once an administrator exists. Administrators create invitations through the website; there is no public registration. Diagnose failures using the final sanitized message, never by sharing passwords or database URLs.
+Bootstrap runs in an interactive terminal, checks database prerequisites, and prompts for email, display name, and a hidden 8–128 character password. It refuses once an administrator exists. Administrators create privileged invitations through the website. Public registration is restricted to verified subscribers through **Subscribe to map updates**. Diagnose failures using the final sanitized message, never by sharing passwords or database URLs.
 
 The approved bootstrap reference map is available before first publication. Login requires the origin/secrets/database; issue browsing additionally requires GitHub. New uploads need private Blob, publication needs public Blob, and public submissions need Turnstile. These dependencies explain why a rendering homepage alone is not an integration check.
 
@@ -96,7 +96,7 @@ Administrators should inspect summary/selected issues, compare PNGs, reopen JSON
 1. In the chosen SES region, verify the sender domain and publish Easy DKIM CNAME records. Review DMARC (start with monitoring while verifying legitimate senders). Optionally add a dedicated MAIL FROM subdomain with the regional MX and SPF TXT records. Preserve root-domain mailbox MX records. A sending address does not require a mailbox; use a real monitored mailbox for Reply-To if needed.
 2. Configure AWS SDK credentials with only `ses:SendEmail` for the verified identity, restricted to the From address. Use administrative credentials separately for provisioning, DNS, and SES suppression management. See [SES identity setup](https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html) and [SNS configuration](https://docs.aws.amazon.com/ses/latest/dg/configure-sns-notifications.html) for provider instructions.
 3. Enable/check SES account suppression for bounces and complaints. Configure identity bounce/complaint notifications to the regional SNS Standard topic, with an SES publish policy scoped to the account/identity. Subscribe `https://<origin>/api/email/feedback` with raw delivery **disabled**. Confirm the subscription and exact `SES_FEEDBACK_TOPIC_ARN`; allow signed SNS callbacks through hosting access controls.
-4. Apply migrations 003/004 before running the updated email paths. Keep sending disabled while preparing or repairing the environment. Existing users remain opted out until consent and mailbox verification.
+4. Apply migrations 003–007 before running the subscriber and updated email paths. Keep sending disabled while preparing or repairing the environment. Existing users remain opted out until consent and mailbox verification.
 5. Run the local email checks below. For a controlled real test recipient, verify content, links, SPF/DKIM/DMARC headers, and inbox placement. Simulator success does not establish those properties.
 6. For arbitrary recipients, obtain SES production access in that region. Supply the real website URL, expected volume, consent process, and implemented bounce/complaint handling. Sandbox sends remain restricted to verified recipients and simulator addresses.
 7. Confirm permanent SNS subscription, schema, HTTPS origin, and delivery checks, then enable `EMAIL_NOTIFICATIONS_ENABLED=true`. Monitor delivery failures, feedback, quota pressure, suppression, and SES reputation. Verify user opt-in/mailbox verification through Settings.
@@ -112,6 +112,18 @@ npm run db:migrate:email:prod -- --check
 ```
 
 The first/last commands inspect prerequisites/checksums and pending migrations without schema changes. The middle command applies only 003/004, preparing email tables/cutoff/quota without deploying or sending. It loads neither `.env` nor `.env.local` and never falls back to `DATABASE_URL`. It skips already-applied migrations; rerun after correcting a failure. Full new-environment provisioning instead uses the ordinary migration command with a securely supplied direct URL.
+
+### Subscriber release preparation
+
+Use `npm run db:migrate -- --check`, then `npm run db:migrate`, then repeat the check with the intended environment's **direct** `DATABASE_URL` supplied securely. The full migration runner includes 005/006 and account-deletion migration 007; `db:migrate:email:prod` remains limited to 003/004 and does not prepare subscriber accounts. Confirm the target and back up account/workflow state before applying. Deploy the matching code only after the schema is ready.
+
+With sending configured, verify **Subscribe to map updates** below the homepage map and on the login page in all three locales. Exercise explicit existing-email/protected-name errors, pending/failed/uncertain delivery states, confirmed provider acceptance, the emailed activation form, automatic login, subscription preferences, and admin role dropdown in an isolated environment. “Invitation sent” requires recorded provider acceptance; it does not establish inbox placement. Repeat requests must not resend submitted or uncertain invitations. Keep production writes separate from these checks. Existing collaborators/admins start with map mail disabled; subscriber activation enables it with consent. All notification categories share `EMAIL_NOTIFICATIONS_PER_DAY`; excess jobs are skipped without next-day replay.
+
+### Permanently deleting an account
+
+After migration 007 and the matching code are deployed, open **Administration → Accounts → Delete permanently** on the target account, check the name/email in the confirmation, and confirm. Use a recent administrator sign-in. Your own account and the last active administrator cannot be deleted. Complete/reconcile any reported outstanding work or wait for active email delivery before trying again; do not clear uncertain states manually.
+
+The deleted email can register again as a new account. Shared contributions, delivery/uncertainty evidence, suppression and abuse limits remain. Existing activation/reset/session links cannot restore the deleted account. For repeated development signup tests, the existing `DISABLE_RATE_LIMITS=true` option is development/test-only; deleting accounts does not bypass production limits or suppression.
 
 ## Deployment and routine updates
 
@@ -213,6 +225,7 @@ node --env-file=.env --env-file=.env.local --conditions=react-server --import ts
 node --env-file=.env --env-file=.env.local --conditions=react-server --import tsx scripts/test-email-jobs.ts
 node --env-file=.env --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-email-quota.ts
 node --env-file=.env --env-file=.env.local --import tsx scripts/test-email-migrations.ts
+node --env-file=.env --env-file=.env.local --experimental-test-module-mocks --conditions=react-server --import tsx scripts/test-subscribers.ts
 ```
 
 ### Live SES simulator acceptance
@@ -236,7 +249,7 @@ This sends real messages through the application worker to `success@simulator.am
 
 Record each result/fix in the relevant technical-spec testing notes, and rerun affected checks after fixes.
 
-- **Accounts:** login/logout, invitations and concurrent redemption, password reset/disabled-session revocation, account-name enforcement, guest name protection, fresh-admin and role boundaries, public-signup rejection.
+- **Accounts:** login/logout, invitations and concurrent redemption, password reset/disabled-session revocation, account-name enforcement, guest name protection, fresh-admin and role boundaries, public privileged-signup rejection, subscriber activation/token replay, promotion/demotion and last-admin protection.
 - **Requests/discussion:** real challenge success/rejection, general and line requests, Chinese text, missing optional names, string line numbers, custom/default dimensions, integer coordinates, comments/replies/mentions, guest quota, chronological pagination, closed/locked/unlabeled rejection, safe Markdown and explicit issue closing.
 - **Uploads/maps:** actual JSON/PNG pair, pinned source, private/public storage access, preview/draft recovery on reload/locale changes/expired sessions, corrupt/oversized files, ownership checks, editor reopening and JSON/PNG visual correspondence.
 - **Update management:** expand an open update PR as an administrator and verify **Close without merge** and **Edit update**; collaborators must not see these controls. Edit another contributor's PR, download its submitted source, upload replacement JSON/PNG, and save: verify the same PR number, original contributor/base, changed title/body/files, new validation checks, and merge blocked until the new head passes. Test stale-head/base rejection for edits and merges, demoted/disabled queued administrators, and close cancellation/completion even when commits/descriptions/branches changed or validation failed, and lost-response reconciliation without duplicate writes. Delete an own inactive update as a collaborator and another user's as an administrator; verify active/reopened PRs, live leases and uncertain actions block deletion. Confirm deletion hides history while preserving publication/GitHub/audit records. Use isolated development resources for live GitHub/Blob acceptance before hosted deployment.

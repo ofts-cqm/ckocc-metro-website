@@ -15,8 +15,8 @@ The owner confirmed on 2026-10-21 that the current repository was the latest dep
 
 ## Implementation constraints
 
-- Accounts are administrator-invited; no public registration/bootstrap. Enforce active account, role, and required fresh authentication on the server, including queued mutations and uploads.
-- Signed-in in-game names come from the account, are visibly disabled in forms, and cannot be overridden through APIs. Protect registered names from guest impersonation. Website attribution does not prove Minecraft identity ownership.
+- Collaborator/admin accounts are administrator-invited or explicitly promoted; public registration is limited to email-verified subscribers. No public bootstrap. Enforce active account, role, and required fresh authentication on the server, including queued mutations and uploads.
+- Signed-in in-game names come from the account, are visibly disabled in forms, and cannot be overridden through APIs. Protect collaborator/admin names from guest/subscriber impersonation; subscriber names remain unverified and do not reserve names against guests. Website attribution does not prove Minecraft identity ownership.
 - Preserve public participation controls and consistent replies/mentions for both comments and general thoughts. Keep chronological paginated comments. Line numbers are strings; English station names/line identifiers are optional; dimensions are free text defaulting to `overworld`.
 - Preserve original RMP JSON/PNG bytes and commit them with the manifest atomically at the three fixed map paths. Record edit bases, reject stale changes, and require human reconciliation/review; never relabel an unknown export as current or automatically merge whole map documents.
 - Keep required trusted map validation and branch freshness effective without runtime-bot bypass. Runtime credentials must not gain Workflows/Administration access. Publishing follows approved default-branch state and preserves the last good map on failure.

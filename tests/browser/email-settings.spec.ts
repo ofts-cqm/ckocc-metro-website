@@ -53,7 +53,7 @@ test("settings show opt-in, verification and pending replacement while preservin
     page.getByRole("heading", { name: "Email settings" }),
   ).toBeVisible();
   const optIn = page.getByRole("checkbox", {
-    name: "Send me email notifications",
+    name: "Send me discussion notification emails",
   });
   await expect(optIn).not.toBeChecked();
   await optIn.check();

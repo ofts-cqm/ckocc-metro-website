@@ -2,6 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import type { SessionUser } from "@/lib/contracts";
+import { subscriberMessages } from "@/lib/subscriber-messages";
+import { SubscribeCallout } from "./subscription";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   MIN_PASSWORD_LENGTH,
@@ -68,7 +71,12 @@ export function LoginPage() {
                     )
                   ? next.replace(/^\/(en-us|zh-cn|zh-hk)/, `/${locale}`)
                   : localeHref(locale, "/updates");
-      router.push(destination);
+      const session = await api<{ user: SessionUser }>("/api/auth/session");
+      router.push(
+        session.user?.role === "subscriber"
+          ? localeHref(locale, "/settings")
+          : destination,
+      );
       router.refresh();
     } catch (e) {
       setError(e);
@@ -98,7 +106,10 @@ export function LoginPage() {
             <i />
             <i />
           </div>
-          <p className="auth-account-note">{m.accountOnly}</p>
+          <p className="auth-account-note">
+            {subscriberMessages(locale).accountHint}
+          </p>
+          <SubscribeCallout />
         </div>
         <form className="form-panel auth-form" onSubmit={submit}>
           <div className="panel-heading">
@@ -147,12 +158,15 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
   const m = useMessages();
   const locale = useLocale();
   const params = useSearchParams();
+  const router = useRouter();
+  const auth = useAuth();
+  const sm = subscriberMessages(locale);
   const token = params.get("token") ?? "";
   const invitation = useApi<{
     invitation: {
       email: string;
       displayName: string;
-      kind: "invite" | "reset";
+      kind: "invite" | "reset" | "subscribe";
       expiresAt: string;
     };
   }>(token ? `/api/invitations?token=${encodeURIComponent(token)}` : null);
@@ -185,12 +199,26 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
     }
     setBusy(true);
     try {
-      await api("/api/invitations/redeem", {
-        method: "POST",
-        body: JSON.stringify({ token, password }),
-      });
+      const result = await api<{ subscribed?: boolean; signedIn?: boolean }>(
+        "/api/invitations/redeem",
+        {
+          method: "POST",
+          body: JSON.stringify({ token, password }),
+        },
+      );
       setPassword("");
       setConfirmation("");
+      if (result.subscribed) {
+        auth.refresh();
+        router.replace(
+          localeHref(
+            locale,
+            result.signedIn ? "/settings" : "/login?next=settings",
+          ),
+        );
+        router.refresh();
+        return;
+      }
       setDone(isReset ? "reset" : "invite");
       window.history.replaceState(
         {},
@@ -210,8 +238,20 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
       </div>
       <PageIntro
         eyebrow={m.loginEyebrow}
-        title={isReset ? m.resetTitle : m.inviteTitle}
-        description={isReset ? m.resetIntro : m.inviteIntro}
+        title={
+          isReset
+            ? m.resetTitle
+            : invitation.data?.invitation.kind === "subscribe"
+              ? sm.subscribe
+              : m.inviteTitle
+        }
+        description={
+          isReset
+            ? m.resetIntro
+            : invitation.data?.invitation.kind === "subscribe"
+              ? sm.activateIntro
+              : m.inviteIntro
+        }
       />
       <div className="form-panel">
         {done ? (
@@ -273,7 +313,13 @@ export function InvitationPage({ reset = false }: { reset?: boolean }) {
                 disabled={busy}
                 type="submit"
               >
-                {busy ? m.submitting : isReset ? m.resetPassword : m.activate}
+                {busy
+                  ? m.submitting
+                  : isReset
+                    ? m.resetPassword
+                    : invitation.data?.invitation.kind === "subscribe"
+                      ? sm.subscribe
+                      : m.activate}
                 <ArrowRight size={16} />
               </button>
             </fieldset>

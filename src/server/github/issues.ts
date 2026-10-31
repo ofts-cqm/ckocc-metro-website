@@ -1,3 +1,4 @@
+import { verifiedAuthor } from "@/server/operations/attribution";
 import type { IssueSummary, IssueDetail, IssueComment } from "@/lib/contracts";
 import { requestSchema, commentSchema } from "@/lib/schemas";
 import { query, transaction } from "@/server/db";
@@ -224,12 +225,16 @@ export async function issueComments(number: number, page: number) {
       op.result.commentId === c.id &&
       op.payload.issueNumber === number &&
       parsed.success &&
-      (commentTemplate(parsed.data, op.id, !!op.actor_id, issue.html_url) ===
-        c.body ||
-        (!!op.actor_id &&
+      (commentTemplate(
+        parsed.data,
+        op.id,
+        verifiedAuthor(op),
+        issue.html_url,
+      ) === c.body ||
+        (verifiedAuthor(op) &&
           commentTemplate(parsed.data, op.id, false, issue.html_url) ===
             c.body));
-    const verified = !!trusted && !!op?.actor_id;
+    const verified = !!trusted && !!op && verifiedAuthor(op);
     return {
       id: c.id,
       body:

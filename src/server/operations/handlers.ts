@@ -19,6 +19,7 @@ import {
 import { readJson, json, errorResponse } from "@/server/http";
 import {
   requireUser,
+  requireCollaborator,
   requireAdmin,
   optionalUser,
 } from "@/server/auth/authorize";
@@ -128,7 +129,7 @@ const issueNumber = async (
 
 async function assertGuestNameAvailable(gameName: string) {
   const registered = await query(
-    'SELECT 1 FROM "user" WHERE lower(btrim(name)) = lower($1) LIMIT 1',
+    `SELECT 1 FROM "user" u JOIN metro_profiles p ON p.user_id=u.id WHERE lower(btrim(u.name)) = lower($1) AND p.role IN ('collaborator','admin') LIMIT 1`,
     [gameName],
   );
   if (registered.rowCount) throw new PipelineError("registered_game_name", 409);
@@ -244,11 +245,13 @@ export const postRequest = route(async (request) => {
     kind: "request",
     scope: user ? `user:${user.id}:request` : "public:request",
     actorId: user?.id,
+    authorRole: user?.role ?? "guest",
     key: input.key,
     receiptToken: input.receiptToken,
     payload,
     authorize: async () => {
-      if (!user) await assertGuestNameAvailable(payload.gameName);
+      if (!user || user.role === "subscriber")
+        await assertGuestNameAvailable(payload.gameName);
       if (payload.kind === "general") await resolveMentions(payload);
       await requireAnonymousWrite(
         request,
@@ -258,7 +261,7 @@ export const postRequest = route(async (request) => {
       );
     },
     reserve:
-      !user && mentionCount
+      (!user || user.role === "subscriber") && mentionCount
         ? (client) => reserveGuestMentions(client, request, mentionCount)
         : undefined,
   });
@@ -270,7 +273,7 @@ export const postRequest = route(async (request) => {
 });
 export const postCloseIssue = route(async (request, context) => {
   enforceSameOrigin(request);
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const number = await issueNumber(context);
   z.object({})
     .strict()
@@ -301,7 +304,7 @@ export const postComment = route(async (request, context) => {
   commentTemplate(
     payload,
     "00000000-0000-0000-0000-000000000000",
-    !!user,
+    !!user && user.role !== "subscriber",
     `https://github.com/${repositoryConfig().owner}/${repositoryConfig().repo}/issues/${number}`,
   );
   const mentionCount = new Set(
@@ -313,11 +316,13 @@ export const postComment = route(async (request, context) => {
       ? `user:${user.id}:comment:${number}`
       : `public:comment:${number}`,
     actorId: user?.id,
+    authorRole: user?.role ?? "guest",
     key: input.key,
     receiptToken: input.receiptToken,
     payload: { ...payload, issueNumber: number },
     authorize: async () => {
-      if (!user) await assertGuestNameAvailable(payload.gameName);
+      if (!user || user.role === "subscriber")
+        await assertGuestNameAvailable(payload.gameName);
       await resolveMentions(payload);
       await requireAnonymousWrite(
         request,
@@ -330,7 +335,7 @@ export const postComment = route(async (request, context) => {
         await assertReplyTarget(number, payload.replyToCommentId);
     },
     reserve:
-      !user && mentionCount
+      (!user || user.role === "subscriber") && mentionCount
         ? (client) => reserveGuestMentions(client, request, mentionCount)
         : undefined,
   });
@@ -357,14 +362,14 @@ export const getOperationStatus = route(async (request, context) => {
 });
 
 export const getMapHead = route(async (request) => {
-  await requireUser(request);
+  await requireCollaborator(request);
   const { commit, manifest } = await resolveMapBase();
   return json({ revision: manifest.map_revision, commitSha: commit });
 });
 
 export const postEditSession = route(async (request) => {
   enforceSameOrigin(request);
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const input = z
     .object({
       baseCommit: z
@@ -385,7 +390,7 @@ export const postEditSession = route(async (request) => {
   );
 });
 export const getEditSession = route(async (request, context) => {
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const session = await ownedEditSession(
     uuid.parse(await param(context, "id")),
     user,
@@ -393,7 +398,7 @@ export const getEditSession = route(async (request, context) => {
   return json({ editSession: await sessionView(session) });
 });
 export const getSource = route(async (request, context) => {
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const session = await ownedEditSession(
     uuid.parse(await param(context, "id")),
     user,
@@ -429,7 +434,7 @@ export const getSource = route(async (request, context) => {
   });
 });
 export const getPreview = route(async (request, context) => {
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const session = await ownedEditSession(
     uuid.parse(await param(context, "id")),
     user,
@@ -464,7 +469,7 @@ export const getPreview = route(async (request, context) => {
 });
 export const postReserveUpload = route(async (request) => {
   enforceSameOrigin(request);
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const input = z
     .object({ editSessionId: uuid, kind: z.enum(["json", "png"]) })
     .strict()
@@ -482,7 +487,7 @@ export const postUploadToken = route(async (request) =>
 );
 export const postCompleteUpload = route(async (request) => {
   enforceSameOrigin(request);
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const input = z
     .object({ uploadId: uuid })
     .strict()
@@ -500,7 +505,7 @@ export const postCompleteUpload = route(async (request) => {
 
 export const postUpdate = route(async (request) => {
   enforceSameOrigin(request);
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const input = updateSchema.parse(await readJson(request));
   const idempotencyKey = key(request);
   const scope = `update:${user.id}`;
@@ -568,7 +573,7 @@ export const postUpdate = route(async (request) => {
   return json({ operation: operationView(operation) }, 202);
 });
 export const getUpdates = route(async (request) => {
-  const user = await requireUser(request);
+  const user = await requireCollaborator(request);
   const historyPage = z.coerce
     .number()
     .int()

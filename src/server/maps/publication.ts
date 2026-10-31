@@ -14,6 +14,8 @@ import { PipelineError } from "@/server/operations/errors";
 type Publication = {
   commit_sha: string;
   revision: string;
+  json_sha: string;
+  png_sha: string;
   image_url: string;
   overview_url: string;
   published_at: Date;
@@ -95,12 +97,36 @@ export async function synchronizePublication() {
         pair.image.height,
       ],
     );
+    // Persist notification intent atomically with the public pointer. Maintenance-only
+    // commits do not announce an unchanged map, but later rollbacks are new events.
+    // now() is transaction-start time, before remote validation/upload: use the
+    // current wall clock so accounts activated during that work are eligible.
+    const prior = previous.rows[0];
+    if (
+      !prior ||
+      prior.json_sha !== pair.jsonHash ||
+      prior.png_sha !== pair.pngHash
+    )
+      await lock.query(
+        `INSERT INTO metro_map_publication_events(repository,commit_sha,revision,summary,published_at)
+         VALUES($1,$2,$3,$4,clock_timestamp())`,
+        [key, commit, pair.revision, manifest.summary],
+      );
     await lock.query(
       `UPDATE metro_operations SET status='published',result=result||jsonb_build_object('publishedAt',now(),'publicationPending',false),updated_at=now()
       WHERE kind IN ('update','rollback') AND id::text=$2 AND checkpoint->>'mapRevision'=$1 AND status='merged'`,
       [pair.revision, manifest.operation_id],
     );
     await lock.query("COMMIT");
+    // Publication is already durable. A launch failure must not turn a successful
+    // map publication into an error; reconciliation recovers its recorded event.
+    try {
+      const { launchPublicationEmailDrain } =
+        await import("@/server/email/jobs");
+      await launchPublicationEmailDrain();
+    } catch {
+      console.error("Map email workflow launch deferred");
+    }
     return { revision: pair.revision, commitSha: commit };
   } catch (error) {
     await lock.query("ROLLBACK");
