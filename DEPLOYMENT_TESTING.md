@@ -151,6 +151,8 @@ git diff --check
 
 Playwright starts/reuses the local development server on `http://localhost:3000` and retains failure traces. Install its browser runtime if absent (`npx playwright install chromium`). Review the environment before integration runs. Typecheck/build prove compilation, not provider permissions or functional acceptance. If Node reports only file-level unit counts, run a test file directly with `node --experimental-test-module-mocks --conditions=react-server --import tsx tests/<name>.test.ts` for its individual results.
 
+For theme changes, run `npm run test:browser -- tests/browser/theme.spec.ts`. It checks system preference changes, saved selections in server HTML, original white map surfaces, and the mobile selector in all three locales. Visually inspect dark homepage/form screens and the narrow header; mocked browser checks do not establish hosted acceptance.
+
 For gallery changes, run `npm run test:browser -- tests/browser/gallery.spec.ts`. This uses mocked APIs and real local photo assets to check rotation, controls, reduced motion, locale navigation, image loading, and mobile layout. Inspect the homepage carousel and full gallery on desktop and mobile. To extend the collection, add matching 640- and 1600-pixel-wide WebP files in `public/gallery` and localized captions/order in `src/lib/gallery.ts`; the runtime does not read the sibling source folder. After deployment, check a homepage photo link and the gallery images in each locale.
 
 ### Local PostgreSQL update recovery acceptance

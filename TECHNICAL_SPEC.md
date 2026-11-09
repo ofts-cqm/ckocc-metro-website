@@ -10,15 +10,17 @@ See [deployment and testing procedures](DEPLOYMENT_TESTING.md) for commands and 
 
 The shared header displays the owner-supplied Ministry of Railways crest beside the localized website name. The home link retains its localized accessible name; the adjacent crest is decorative to avoid repeating the link label. Preserve the full image composition and aspect ratio, with a 64-pixel desktop and 44-pixel narrow-mobile footprint. Store the original PNG at `public/brand/logo.png` and use Next.js image optimization for responsive delivery.
 
-The interface draws from the crest: navy headings, red primary actions and active navigation accents, gold decorative rules, and cool white/blue surfaces. Gold is decorative; text uses darker colors. Status indicators and map route colors retain their functional meaning. Navigation, translations, and participation workflows retain their existing behavior.
+The interface draws from the crest: navy headings, red primary actions and active navigation accents, gold decorative rules, and cool white/blue surfaces. Gold is decorative; text uses darker colors. Status indicators and map route colors retain their functional meaning. Navigation, translations, and participation workflows retain their existing behavior. The theme defaults to the device preference and follows subsequent system changes. A localized System / Light / Dark selector appears in the desktop header and mobile navigation. Explicit choices persist in a one-year `metro-theme` cookie; the server renders the saved preference on the root element before paint. Dark mode uses burgundy-black surfaces, deep red actions, pale text/link colors, and muted gold details. Forms, menus, cards, tables, notices, and focus indicators adapt via CSS color-scheme and light-dark colors. Original map imagery stays on white, and logo/gallery pixels are not filtered.
 
 ### Status
 
-**Implemented locally; not deployed.** The header uses the supplied crest, shared theme tokens use the new palette, and homepage rail artwork and participation callouts match it.
+**Implemented locally; not deployed.** The header uses the supplied crest, shared theme tokens use the new palette, and homepage rail artwork and participation callouts match it. System/light/dark selection and shared dark styles are implemented locally.
 
 ### Testing notes and limitations
 
 **2026-11-08:** Typecheck and production build passed. Local Chromium checks confirmed the logo loads and no horizontal page overflow at 1440, 800, 390, and 320 pixels across English, Simplified Chinese, and Traditional Chinese routes. Desktop English and narrow Traditional Chinese screenshots were visually inspected. All seven existing gallery browser tests passed against the local production build (a temporary Playwright server override avoided the development server's blocked registry lookup). Formatting and `git diff --check` passed. APIs were mocked; these checks do not establish hosted behavior or authenticated-page visual acceptance.
+
+**2026-11-08 dark theme:** Typecheck, production build, formatting, and all 11 focused theme/gallery browser checks passed locally with mocked APIs. Theme checks cover live system-preference changes, explicit light/dark override, reset to system, cookie persistence in server-rendered HTML, a white map canvas, and the mobile control in all three locales at 320 pixels. Dark homepage, request form, and sign-in screenshots were inspected at desktop/tablet widths and the narrow mobile header was checked; an English header overflow at 320 pixels was fixed by hiding the secondary tagline at very narrow widths. Success/warning text retains green/gold distinctions. No provider writes or deployment were performed; authenticated admin/collaborator pages and third-party challenge styling were not visually accepted.
 
 ## Architecture and persistence
 

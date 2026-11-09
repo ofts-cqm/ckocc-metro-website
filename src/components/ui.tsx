@@ -253,13 +253,40 @@ export const useAuth = () => useContext(AuthContext);
 export function SiteShell({
   locale,
   children,
+  initialTheme = "system",
 }: {
   locale: Locale;
   children: ReactNode;
+  initialTheme?: "system" | "light" | "dark";
 }) {
   const m = catalogs[locale];
   const pathname = usePathname();
   const router = useRouter();
+  const [theme, setTheme] = useState(initialTheme);
+  function changeTheme(value: string) {
+    if (value !== "system" && value !== "light" && value !== "dark") return;
+    setTheme(value);
+    document.documentElement.dataset.theme = value;
+    document.cookie = `metro-theme=${value}; Max-Age=31536000; Path=/; SameSite=Lax`;
+  }
+  function themeControl(className: string) {
+    return (
+      <label className={`theme-control ${className}`}>
+        <span className={className === "theme-desktop" ? "sr-only" : undefined}>
+          {m.theme}
+        </span>
+        <select
+          aria-label={m.theme}
+          value={theme}
+          onChange={(event) => changeTheme(event.target.value)}
+        >
+          <option value="system">{m.themeSystem}</option>
+          <option value="light">{m.themeLight}</option>
+          <option value="dark">{m.themeDark}</option>
+        </select>
+      </label>
+    );
+  }
   const [menu, setMenu] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const auth = useApi<{ user: SessionUser | null }>("/api/auth/session");
@@ -378,6 +405,7 @@ export function SiteShell({
               )}
             </nav>
             <div className="header-actions">
+              {themeControl("theme-desktop")}
               {collaborator && (
                 <div className="notification-menu">
                   <button
@@ -490,6 +518,7 @@ export function SiteShell({
           </div>
           {menu && (
             <nav className="mobile-nav" aria-label={m.menu}>
+              {themeControl("theme-mobile")}
               <Link href={localeHref(locale)}>{m.map}</Link>
               <Link href={localeHref(locale, "/#requests")}>{m.requests}</Link>
               <Link

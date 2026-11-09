@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,8 +21,11 @@ export default async function RootLayout({
     requested && ["en-US", "zh-CN", "zh-HK"].includes(requested)
       ? requested
       : "en-US";
+  const savedTheme = (await cookies()).get("metro-theme")?.value;
+  const theme =
+    savedTheme === "light" || savedTheme === "dark" ? savedTheme : "system";
   return (
-    <html lang={locale}>
+    <html lang={locale} data-theme={theme}>
       <body>{children}</body>
     </html>
   );
