@@ -4,6 +4,22 @@ This is the canonical specification, plan, and test-evidence record. The owner c
 
 See [deployment and testing procedures](DEPLOYMENT_TESTING.md) for commands and resource setup, and [contributor guidance](AGENTS.md) for essential constraints. Each subsystem places its specification before its implementation status and testing notes. Update all three together when behavior changes.
 
+## Website identity and theme
+
+### Specification
+
+The shared header displays the owner-supplied Ministry of Railways crest beside the localized website name. The home link retains its localized accessible name; the adjacent crest is decorative to avoid repeating the link label. Preserve the full image composition and aspect ratio, with a 64-pixel desktop and 44-pixel narrow-mobile footprint. Store the original PNG at `public/brand/logo.png` and use Next.js image optimization for responsive delivery.
+
+The interface draws from the crest: navy headings, red primary actions and active navigation accents, gold decorative rules, and cool white/blue surfaces. Gold is decorative; text uses darker colors. Status indicators and map route colors retain their functional meaning. Navigation, translations, and participation workflows retain their existing behavior.
+
+### Status
+
+**Implemented locally; not deployed.** The header uses the supplied crest, shared theme tokens use the new palette, and homepage rail artwork and participation callouts match it.
+
+### Testing notes and limitations
+
+**2026-11-08:** Typecheck and production build passed. Local Chromium checks confirmed the logo loads and no horizontal page overflow at 1440, 800, 390, and 320 pixels across English, Simplified Chinese, and Traditional Chinese routes. Desktop English and narrow Traditional Chinese screenshots were visually inspected. All seven existing gallery browser tests passed against the local production build (a temporary Playwright server override avoided the development server's blocked registry lookup). Formatting and `git diff --check` passed. APIs were mocked; these checks do not establish hosted behavior or authenticated-page visual acceptance.
+
 ## Architecture and persistence
 
 ### Specification

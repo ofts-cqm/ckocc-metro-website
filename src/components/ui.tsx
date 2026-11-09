@@ -12,6 +12,8 @@ import {
   type SetStateAction,
 } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import logo from "../../public/brand/logo.png";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -336,9 +338,15 @@ export function SiteShell({
               href={localeHref(locale)}
               aria-label={m.home}
             >
-              <span className="brand-mark">
-                <TrainFront size={25} strokeWidth={2.3} />
-              </span>
+              <Image
+                className="brand-mark"
+                src={logo}
+                alt=""
+                width={64}
+                height={64}
+                sizes="(max-width: 480px) 44px, 64px"
+                priority
+              />
               <span>
                 {m.brand}
                 <small>{m.brandSub}</small>

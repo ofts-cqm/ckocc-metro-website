@@ -263,17 +263,17 @@ export function HomePage() {
           <svg viewBox="0 0 350 190" fill="none">
             <path
               d="M20 148H97C130 148 118 55 157 55H330"
-              stroke="#d99b32"
+              stroke="#f4bd23"
               strokeWidth="10"
             />
             <path
               d="M20 47H87C120 47 120 108 155 108H330"
-              stroke="#296f64"
+              stroke="#175698"
               strokeWidth="10"
             />
             <path
               d="M20 96H65C112 96 120 157 168 157H330"
-              stroke="#c66d64"
+              stroke="#a82b25"
               strokeWidth="10"
             />
             {[
@@ -292,8 +292,8 @@ export function HomePage() {
                 cx={x}
                 cy={y}
                 r="6"
-                fill="#faf9f6"
-                stroke="#243c38"
+                fill="#f7f9fc"
+                stroke="#153d6a"
                 strokeWidth="2.5"
               />
             ))}
@@ -304,8 +304,8 @@ export function HomePage() {
               height="40"
               rx="10"
               transform="rotate(-22 126 83)"
-              fill="#faf9f6"
-              stroke="#243c38"
+              fill="#f7f9fc"
+              stroke="#153d6a"
               strokeWidth="3"
             />
           </svg>
